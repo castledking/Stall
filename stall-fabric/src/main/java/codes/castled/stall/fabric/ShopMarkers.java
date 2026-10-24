@@ -47,4 +47,6 @@ final class ShopMarkers
     {
         return shop.id().toString().equals(barrel.getAttached(SHOP));
     }
+
+    static String marker(BlockEntity barrel) { return barrel.getAttached(SHOP); }
 }

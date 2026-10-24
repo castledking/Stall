@@ -37,6 +37,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class FabricItemCodecTest
 {
+    @Test
+    void explosionFilteringKeepsVanillasMutableListContract()
+    {
+        var affected = ShopProtection.filterExplosion(null, List.of(net.minecraft.core.BlockPos.ZERO));
+        affected.clear();
+        assertTrue(affected.isEmpty());
+    }
     /** {id: "minecraft:emerald", count: 1, DataVersion: 5023}, Minecraft 26.3's data version. */
     private static final String PAPER_EMERALD = "H4sIAAAAAAAC/+NiYOBgYMpMYRDMzcxLTS5KTCuxSs1NLUrMSWFmYE3OL80rYWBgYGRm4HZJLEkMSy0qzszPY2AQns8AAGNYAo06AAAA";
 

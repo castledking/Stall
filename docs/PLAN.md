@@ -2,9 +2,9 @@
 
 Status: **approved 2026-10-23, scoped to Minecraft 26.3 only for now.** Progress is logged in §15.
 
-**Current implementation update (2026-10-24):** the plugin now supports Spigot as well as Paper. It
+**Current implementation update (2026-10-24):** the plugin now supports Spigot, Paper and Folia. It
 compiles against Spigot API 26.3. Item persistence uses a small native-codec bridge to preserve the
-shared item format; the original Paper-only API assessment below predates that extension. See §15.
+shared item format; the original Paper-only API assessment below predates that extension. Folia uses region-owned transactions and entity schedulers. See §15.
 
 Evidence tags used throughout:
 
@@ -24,7 +24,7 @@ Evidence tags used throughout:
 | --- | --- |
 | Architecture | `stall-core` (platform-neutral model, offer rules, trade planner, persistence codec, limits, GUI layouts) plus thin `stall-paper` and `stall-fabric` adapters. The core's boundary is enforced at build time, as `gp3d-core`'s is. |
 | Shop representation | A vanilla **container block** (barrels first, chests later) converted with a **Stall token**. The container is both the anchor and the stock. Ownership is recorded in Stall's registry **and** stamped on the block entity (PDC on Paper, a Fabric data attachment), so the two can be cross-checked. |
-| Initial floor | **Minecraft 26.3, Java 25, Spigot/Paper 26.3 (`spigot-api 26.3-R0.1-SNAPSHOT`), Fabric Loader ≥ 0.19.3, Fabric API ≥ 0.160.7+26.3.** |
+| Initial floor | **Minecraft 26.3, Java 25, Spigot/Paper/Folia 26.3 (`spigot-api 26.3-R0.1-SNAPSHOT`), Fabric Loader ≥ 0.19.3, Fabric API ≥ 0.160.7+26.3.** |
 | Widening | **Deferred: 26.3 only for now.** 26.1.2 – 26.3.x stays feasible (every API is verified present), behind GP3D-style linkage and boot checks. |
 | Not recommended | 1.21.x. It would need a second remapped Fabric adapter on Java 21 for no gameplay gain. |
 | Biggest risks | (1) Server-side GUIs on Fabric with vanilla clients. (2) Event ordering against claim plugins. (3) Theft vectors around containers. (4) Item identity and serialization parity between platforms. |
@@ -701,11 +701,11 @@ Stall/
 | Multiple offers | none (core) | fully shared | Menu capacity: 6 per page by default | [V] (design) |
 | Two item slots per trade side | Item templates: Paper `serializeAsBytes`, Fabric codec | model shared; serialization same bytes | Same item in both slots (aggregated); template size limit | [V] / [P] (P5) |
 | Buyer GUI | Paper: `createInventory` + holder, click, drag and close events. Fabric: `ChestMenu.*Rows`, `MenuType.GENERIC_9xN`, `openMenu`, `clicked` override | layouts and click semantics shared | **Fabric client-prediction desync / ghost items** (P1); 3 offers per barrel-sized page | [V] / [P] |
-| Transaction processing | Paper: `getStorageContents`, `setItem`, `isSimilar`, `getMaxStackSize`. Fabric: `getNonEquipmentItems`, `Container.setItem/getMaxStackSize(ItemStack)`, `isSameItemSameComponents` | planner shared; commit per platform | `isSimilar` vs vanilla equality parity (P5); Folia unsupported | [V] / [P] |
+| Transaction processing | Paper: `getStorageContents`, `setItem`, `isSimilar`, `getMaxStackSize`. Fabric: `getNonEquipmentItems`, `Container.setItem/getMaxStackSize(ItemStack)`, `isSameItemSameComponents` | planner shared; commit per platform | `isSimilar` vs vanilla equality parity (P5); Folia ownership checks required | [V] / [P] |
 | Permission-based shop caps | Paper: `hasPermission`. Fabric: `fabric-permission-api-v1`; LuckPerms implements it | `LimitResolver` shared | No provider on Fabric → defaults and op level; meta key format (P6) | [V] |
 | Persistence and recovery | Gson (runtime-provided), atomic files; item bytes per A10 | codec and store shared | Paper 26.x world-folder location; byte parity (P5); crash divergence handled by markers | [V] / [P] |
 | Fabric dedicated-server support | `environment: "*"`, no registry additions, server-side mixins only, `main` entrypoint | — | Mixin target drift across 26.x (linkage check before widening) | [I] / [P] (boot smoke) |
-| Paper plugin support | `plugin.yml`, Brigadier lifecycle commands, standard events; no NMS | — | `api-version` string for 26.x (P7); Folia not targeted | [V] / [I] |
+| Paper plugin support | `plugin.yml`, Brigadier lifecycle commands, standard events; no NMS | — | `api-version` string for 26.x (P7); Folia scheduler adapters and ownership guards | [V] / [I] |
 | Protection (GP) | Ordering (above); Paper GP API optional; Fabric needs a GP3D API addition for explicit checks | `ProtectionHook` in core | GP3D Fabric has no public trust query today | [V] |
 | Shop-block protection | Paper events; Fabric: break event + 2–3 mixins | rules shared | Copper golem and hopper behavior details (P8) | [V] / [I] |
 
@@ -770,8 +770,10 @@ safety net, and proves the shared planner end to end. The planner code carries s
    was Experimental on 26.1.2. Mitigation: 26.3 only for now; linkage check and boot smoke before claiming more.
 6. **Persistence diverging from the world after crashes or rollbacks.** Mitigation: data in the world folder,
    marker reconciliation, and states that never trade when unverified.
-7. **Folia:** not supported. Atomicity relies on the main thread. Buyer and container are normally in one region,
-   so support is plausible later but needs its own design pass. Leave `folia-supported` unset.
+7. **Folia:** implemented for 26.3. Atomicity requires one region to own both the buyer and the stock.
+   Every transaction checks ownership before reading either inventory. Menu and refund work follows the
+   player's entity scheduler; reconciliation runs on the shop's region. Foreign-region operations are
+   refused without touching stock. Live-player region transitions remain a client test.
 
 ---
 
@@ -1036,3 +1038,37 @@ sanity limit.
   hopper input/extraction and break protection. These checks simulate player calls against real
   Bukkit inventories, so vanilla-client packet behavior still needs the retest in `TESTING.md`.
 - Release metadata and store pages now include Spigot. Folia remains unsupported.
+
+
+### 2026-10-24: milestone 3 protection/reconciliation and Folia
+
+- The user marked the round-five amount and paused-shop checks as passed; those checkmarks are retained.
+- **Explosion protection:** Bukkit filters both entity and block explosion lists at HIGHEST. Fabric
+  filters `ServerExplosion`'s affected blocks before destruction/drops. The list stays mutable because
+  vanilla shuffles it; a real TNT test caught that requirement and a regression now covers it. Other
+  blocks still explode normally, and stock remains in the shop barrel.
+- **Reconciliation:** loaded shops are inspected after chunk load, on interaction, at startup and every
+  200 ticks. A missing container or conflicting marker is orphaned; an unmarked barrel stays paused.
+  Unloaded chunks and unavailable worlds are skipped. Records are archived in `shops/_orphaned/` and
+  consumed tokens are queued for `/stall reclaim`, even if the owner is online.
+- **Refund recovery:** `returns.json` schema 2 retains refunded shop IDs as well as owed counts. Schema
+  1 remains readable. The storage worker writes the refund ledger before the archive and active-file
+  deletion. A stale file surviving an interrupted archive is skipped/archived on startup, never refunded
+  twice. Claim writes remain ordered relative to archival. This does not add an inventory/world-save
+  transaction or undo vanilla rollbacks.
+- **Folia:** `FoliaSupport`, `SchedulerAdapter` and `SchedulerFacade` follow GPExpansion's adapter pattern,
+  with runtime detection that distinguishes Folia from Paper. Periodic global work only scans metadata;
+  player work uses entity schedulers and shop checks use region schedulers. `plugin.yml` declares support.
+  Player-proxied console commands and remote admin token deliveries also switch to the entity owner.
+  Registries, viewers, refund bookkeeping and click throttles support concurrent regions. Offers are
+  immutable list snapshots, read safely for listings; stock access and trades require ownership of both
+  the player and the shop chunk, and mutations remain synchronous within that region.
+- **Verified:** 84 core tests and 9 Fabric tests pass. Real Spigot 26.3, Paper 26.3 build 193 and Folia
+  26.3 build 5 pass the server checks for item data, commands, real explosions and orphan refunds.
+  Spigot/Paper also run simulated-player menus/trades; Folia instead verifies two regions 8,192 blocks
+  apart, foreign-stock rejection, regional cleanup and entity scheduler handoffs. A dedicated Fabric
+  26.3 / Loader 0.19.3 / Fabric API 0.162.0+26.3 server passes TNT protection, neighbour destruction,
+  periodic missing-barrel cleanup, archived offers and exactly one refund across a restart.
+- **Pending client checks:** the new checklist in `TESTING.md`, particularly Folia purchases, menu
+  resizing with cursor items, remote-owner disconnects and third-party claim integrations. No full
+  client validation is claimed for those paths.

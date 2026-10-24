@@ -6,6 +6,7 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.Event;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
@@ -52,6 +53,7 @@ public final class StallFabric implements ModInitializer
         ShopProtection.install(shops);
         ServerLifecycleEvents.SERVER_STARTED.register(shops::startStorage);
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> shops.stopStorage());
+        ServerChunkEvents.CHUNK_LOAD.register((level, chunk, generated) -> shops.chunkLoaded(level, chunk.getPos().x(), chunk.getPos().z()));
 
         UseBlockCallback.EVENT.addPhaseOrdering(SHOP_ACCESS_PHASE, Event.DEFAULT_PHASE);
         UseBlockCallback.EVENT.addPhaseOrdering(Event.DEFAULT_PHASE, CREATE_PHASE);
@@ -62,6 +64,7 @@ public final class StallFabric implements ModInitializer
                 return InteractionResult.PASS;
             }
             Optional<Shop<ItemStack>> shop = shops.shopAt(level, hit.getBlockPos());
+            shop.ifPresent(found -> shops.reconcile(level, found));
             if (shop.isEmpty() || !(level.getBlockEntity(hit.getBlockPos()) instanceof BarrelBlockEntity barrel))
             {
                 return InteractionResult.PASS;
@@ -172,6 +175,7 @@ public final class StallFabric implements ModInitializer
         ServerTickEvents.END_SERVER_TICK.register(server ->
         {
             shops.endOfTick();
+            if (server.getTickCount() % 200 == 0) shops.sweep(server);
             if (server.getTickCount() % MENU_REFRESH_TICKS == 0)
             {
                 shops.refreshOpenMenus();

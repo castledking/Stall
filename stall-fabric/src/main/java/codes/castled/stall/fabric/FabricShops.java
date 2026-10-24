@@ -3,6 +3,7 @@ package codes.castled.stall.fabric;
 import codes.castled.stall.menu.OfferEditor;
 import codes.castled.stall.offer.Offer;
 import codes.castled.stall.shop.Shop;
+import codes.castled.stall.shop.ShopAnchor;
 import codes.castled.stall.shop.ShopLimits;
 import codes.castled.stall.shop.ShopLocation;
 import codes.castled.stall.shop.ShopRegistry;
@@ -158,6 +159,43 @@ final class FabricShops
             logger.warn("{} shop file(s) could not be loaded and were moved to shops/_broken; {} were written by a "
                     + "newer version of Stall and left alone.", report.quarantined(), report.fromNewerVersion());
         }
+        sweep(server);
+    }
+
+    void sweep(MinecraftServer server)
+    {
+        for (ServerLevel level : server.getAllLevels())
+        {
+            for (Shop<ItemStack> shop : registry.all())
+            {
+                if (shop.location().world().equals(level.dimension().identifier().toString())) reconcile(level, shop);
+            }
+        }
+    }
+
+    void chunkLoaded(ServerLevel level, int x, int z)
+    {
+        endOfTick.add(() -> registry.inChunk(level.dimension().identifier().toString(), x, z)
+                .forEach(shop -> reconcile(level, shop)));
+    }
+
+    void reconcile(Level level, Shop<ItemStack> shop)
+    {
+        if (!registry.isCurrent(shop)) return;
+        var location = shop.location();
+        BlockPos pos = new BlockPos(location.x(), location.y(), location.z());
+        if (!level.dimension().identifier().toString().equals(location.world()) || !level.isLoaded(pos)) return;
+        var blockEntity = level.getBlockEntity(pos);
+        ShopAnchor.Status status = ShopAnchor.inspect(true, blockEntity instanceof BarrelBlockEntity,
+                blockEntity instanceof BarrelBlockEntity barrel ? ShopMarkers.marker(barrel) : null, shop.id());
+        if (status != ShopAnchor.Status.ORPHANED || !registry.remove(shop)) return;
+        synchronized (tokenReturns)
+        {
+            tokenReturns.refund(shop);
+            if (persistence != null) persistence.archiveShop(shop, tokenReturns, "container missing or owned by another shop");
+        }
+        for (StallMenu menu : viewers.of(shop.id())) menu.viewer().closeContainer();
+        logger.info("Archived orphaned shop {} at {}; its owner can collect any returned token with /stall reclaim.", shop.id(), location);
     }
 
     /** Writes every change still waiting. Runs as the server stops. */
@@ -279,7 +317,7 @@ final class FabricShops
      */
     TokenReturn remove(MinecraftServer server, Shop<ItemStack> shop, ServerPlayer actor, boolean broken)
     {
-        registry.remove(shop);
+        if (!registry.remove(shop)) return TokenReturn.NONE;
         if (persistence != null)
         {
             persistence.deleteShop(shop);

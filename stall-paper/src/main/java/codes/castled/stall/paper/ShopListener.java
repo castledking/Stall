@@ -13,6 +13,9 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockExplodeEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
@@ -54,8 +57,14 @@ final class ShopListener implements Listener
         {
             return;
         }
+        if (!FoliaSupport.owns(block.getWorld(), block.getX() >> 4, block.getZ() >> 4))
+        {
+            event.setCancelled(true);
+            return;
+        }
         Optional<Shop<ItemStack>> shop = shops.shopAt(block);
-        if (shop.isEmpty() || !(block.getState() instanceof Barrel))
+        shop.ifPresent(shops::reconcile);
+        if (shop.isEmpty() || !shops.registry().isCurrent(shop.get()) || !(block.getState() instanceof Barrel))
         {
             return;
         }
@@ -105,6 +114,25 @@ final class ShopListener implements Listener
         }
     }
 
+    /** Protect only shop blocks; the rest of the explosion behaves normally. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    void onEntityExplosion(EntityExplodeEvent event)
+    {
+        event.blockList().removeIf(block -> shops.shopAt(block).isPresent());
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    void onBlockExplosion(BlockExplodeEvent event)
+    {
+        event.blockList().removeIf(block -> shops.shopAt(block).isPresent());
+    }
+
+    @EventHandler
+    void onChunkLoad(ChunkLoadEvent event)
+    {
+        shops.chunkLoaded(event.getWorld(), event.getChunk().getX(), event.getChunk().getZ());
+    }
+
     /**
      * Turns a barrel into a shop with a token, or reactivates a paused shop. Runs at {@code HIGH}, after
      * protection plugins such as GriefPrevention (at {@code LOW}), and only if none of them refused the
@@ -120,7 +148,9 @@ final class ShopListener implements Listener
         }
         Block block = event.getClickedBlock();
         Player player = event.getPlayer();
-        if (block == null || player.getGameMode() == GameMode.SPECTATOR || !(block.getState() instanceof Barrel barrel))
+        if (block == null || player.getGameMode() == GameMode.SPECTATOR
+                || !FoliaSupport.owns(block.getWorld(), block.getX() >> 4, block.getZ() >> 4)
+                || !(block.getState() instanceof Barrel barrel))
         {
             return;
         }

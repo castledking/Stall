@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.HashSet;
+import com.google.gson.JsonArray;
 import java.util.stream.Stream;
 
 /**
@@ -29,14 +31,14 @@ import java.util.stream.Stream;
  * </pre>
  *
  * <p>The server's shops live in memory; this keeps the files in step. Every change is turned into JSON on
- * the server thread, where reading items is safe, and written by {@link FileStore} in the background.
+ * the owning server region, where reading item templates is safe, and written by {@link FileStore} in the background.
  */
 public final class ShopPersistence<I> implements AutoCloseable
 {
     private static final String SHOPS = "shops";
     private static final String BROKEN = "_broken";
     private static final String RETURNS = "returns.json";
-    private static final int RETURNS_SCHEMA = 1;
+    private static final int RETURNS_SCHEMA = 2;
 
     private final Path directory;
     private final ShopCodec<I> codec;
@@ -71,6 +73,7 @@ public final class ShopPersistence<I> implements AutoCloseable
     /** Loads every saved shop into {@code registry} and every owed token into {@code returns}. */
     public LoadReport load(ShopRegistry<I> registry, TokenReturns returns)
     {
+        loadReturns(returns);
         int loaded = 0;
         int quarantined = 0;
         int newer = 0;
@@ -84,6 +87,12 @@ public final class ShopPersistence<I> implements AutoCloseable
                 if (!file.getFileName().toString().equals(shop.id() + ".json"))
                 {
                     throw new ShopDataException("its file name doesn't match its shop id " + shop.id(), null);
+                }
+                if (returns.wasRefunded(shop.id()))
+                {
+                    // The refund reached disk but the server stopped before the old file was deleted.
+                    archiveShop(shop, returns, "recovered interrupted orphan removal");
+                    continue;
                 }
                 if (registry.at(shop.location()).isPresent())
                 {
@@ -117,28 +126,55 @@ public final class ShopPersistence<I> implements AutoCloseable
                 quarantined++;
             }
         }
-        loadReturns(returns);
         return new LoadReport(loaded, quarantined, newer, unreadable);
     }
 
-    public void saveShop(Shop<I> shop)
+    public synchronized void saveShop(Shop<I> shop)
     {
         files.write(shopFile(shop.id()), gson.toJson(codec.encode(shop)));
     }
 
-    public void deleteShop(Shop<I> shop)
+    public synchronized void deleteShop(Shop<I> shop)
     {
         files.delete(shopFile(shop.id()));
     }
 
     public void saveReturns(TokenReturns returns)
     {
+        synchronized (returns)
+        {
+            synchronized (this) { files.writeOrdered(directory.resolve(RETURNS), returnsJson(returns)); }
+        }
+    }
+
+    /** Call while holding the returns monitor, after refunding and deregistering the orphan. */
+    public void archiveShop(Shop<I> shop, TokenReturns returns, String reason)
+    {
+        synchronized (returns)
+        {
+            synchronized (this)
+            {
+                JsonObject archived = codec.encode(shop);
+                archived.addProperty("archive_reason", reason);
+                archived.addProperty("archived_at", java.time.Instant.now().toString());
+                files.archive(directory.resolve(RETURNS), returnsJson(returns),
+                        directory.resolve(SHOPS).resolve("_orphaned").resolve(shop.id() + ".json"),
+                        gson.toJson(archived), shopFile(shop.id()));
+            }
+        }
+    }
+
+    private String returnsJson(TokenReturns returns)
+    {
         JsonObject owed = new JsonObject();
         returns.snapshot().forEach((player, count) -> owed.addProperty(player.toString(), count));
         JsonObject json = new JsonObject();
         json.addProperty("schema", RETURNS_SCHEMA);
         json.add("owed", owed);
-        files.write(directory.resolve(RETURNS), gson.toJson(json));
+        JsonArray refunded = new JsonArray();
+        returns.refundedShops().stream().sorted().forEach(id -> refunded.add(id.toString()));
+        json.add("refunded_shops", refunded);
+        return gson.toJson(json);
     }
 
     /** Blocks until every change so far is on disk. */
@@ -189,10 +225,17 @@ public final class ShopPersistence<I> implements AutoCloseable
         }
         try
         {
-            JsonObject owed = readJson(file).getAsJsonObject("owed");
+            JsonObject json = readJson(file);
+            JsonObject owed = json.getAsJsonObject("owed");
             Map<UUID, Integer> saved = new HashMap<>();
             owed.entrySet().forEach(entry -> saved.put(UUID.fromString(entry.getKey()), entry.getValue().getAsInt()));
+            var refunded = new HashSet<UUID>();
+            if (json.has("refunded_shops"))
+            {
+                json.getAsJsonArray("refunded_shops").forEach(id -> refunded.add(UUID.fromString(id.getAsString())));
+            }
             returns.restore(saved);
+            returns.restoreRefunded(refunded);
         }
         catch (IOException | RuntimeException failure)
         {

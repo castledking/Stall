@@ -45,6 +45,11 @@ final class OwnerMenu extends StallMenu
     @Override
     void handleClick(InventoryClickEvent event)
     {
+        if (!shops.stillValid(this))
+        {
+            event.setCancelled(true);
+            return;
+        }
         if (isMenuSlot(event.getRawSlot()))
         {
             event.setCancelled(true);

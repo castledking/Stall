@@ -57,6 +57,34 @@ final class FileStore implements AutoCloseable
         schedule(file, Optional.empty());
     }
 
+    /** Ledger writes must keep their order relative to orphan archival, rather than coalescing. */
+    void writeOrdered(Path file, String content)
+    {
+        io.execute(() ->
+        {
+            try { writeAtomically(file, content); }
+            catch (IOException | RuntimeException failure) { log.warn("Could not save " + file, failure); }
+        });
+    }
+
+    /** Save the refund first. A crash before deletion is recovered using the ledger's shop IDs. */
+    void archive(Path ledger, String refunds, Path archive, String shop, Path original)
+    {
+        io.execute(() ->
+        {
+            try
+            {
+                writeAtomically(ledger, refunds);
+                writeAtomically(archive, shop);
+                Files.deleteIfExists(original);
+            }
+            catch (IOException | RuntimeException failure)
+            {
+                log.warn("Could not finish archiving " + original + "; the next startup will recover it.", failure);
+            }
+        });
+    }
+
     private void schedule(Path file, Optional<String> content)
     {
         if (pending.put(file, content) == null)

@@ -34,6 +34,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.concurrent.CompletableFuture;
+import org.bukkit.entity.ArmorStand;
 
 /** Real server checks for item parity, menus, commands, stock protection and the Bukkit transaction adapter. */
 public final class ServerChecks
@@ -42,16 +45,132 @@ public final class ServerChecks
     {
     }
 
+    public static void start(Plugin plugin, Consumer<Throwable> done)
+    {
+        Runnable checks = () ->
+        {
+            try
+            {
+                run(plugin);
+                if (FoliaSupport.PRESENT)
+                {
+                    ArmorStand stand = Bukkit.getWorlds().getFirst().spawn(new org.bukkit.Location(Bukkit.getWorlds().getFirst(), 0.5, 85, 0.5), ArmorStand.class);
+                    var field = StallPlugin.class.getDeclaredField("shops");
+                    field.setAccessible(true);
+                    PaperShops shops = (PaperShops) field.get(plugin);
+                    World world = stand.getWorld();
+                    Shop<ItemStack> distant = new Shop<>(UUID.randomUUID(), UUID.randomUUID(), "DistantOwner",
+                            new codes.castled.stall.shop.ShopLocation(world.getKey().toString(), 8192, 80, 8192), true);
+                    check(!FoliaSupport.owns(world, 512, 512), "test chunks did not form separate regions");
+                    // Setup owns the async chunk request; unlike production sweeps it may keep the test region alive.
+                    SchedulerAdapter.region(plugin, world, 512, 512, () ->
+                    {
+                        try
+                        {
+                            check(FoliaSupport.owns(world, 512, 512), "region task ran on the wrong region");
+                            Block anchor = world.getBlockAt(8192, 80, 8192);
+                            anchor.setType(Material.BARREL);
+                            PaperMarkers.stamp(anchor, distant);
+                            shops.registry().add(distant);
+                            check(shops.stock(distant).isPresent(), "owned-region stock was refused");
+                            shops.scheduler().entity(stand, () ->
+                            {
+                                try
+                                {
+                                    check(FoliaSupport.owns(stand), "entity task ran on the wrong region");
+                                    check(shops.block(distant).isEmpty() && shops.stock(distant).isEmpty(), "foreign-region stock was accessed");
+                                    shops.reconcile(distant);
+                                    check(shops.registry().isCurrent(distant), "foreign-region reconciliation removed a shop");
+                                    stand.remove();
+                                    SchedulerAdapter.region(plugin, world, 512, 512, () ->
+                                    {
+                                        try
+                                        {
+                                            world.getBlockAt(8192, 80, 8192).setType(Material.AIR);
+                                            shops.reconcile(distant);
+                                            check(shops.tokensOwed(distant.owner()) == 1, "distant region did not refund its orphan");
+                                            done.accept(null);
+                                        }
+                                        catch (Throwable error) { done.accept(error); }
+                                    });
+                                }
+                                catch (Throwable error) { done.accept(error); }
+                            });
+                        }
+                        catch (Throwable error) { done.accept(error); }
+                    });
+                }
+                else done.accept(null);
+            }
+            catch (Throwable error) { done.accept(error); }
+        };
+        if (!FoliaSupport.PRESENT) Bukkit.getScheduler().runTask(plugin, checks);
+        else
+        {
+            try
+            {
+                World world = Bukkit.getWorlds().getFirst();
+                // Test setup may load its disposable chunk. Production reconciliation never requests one.
+                var loadChunk = World.class.getMethod("getChunkAtAsync", int.class, int.class, boolean.class);
+                CompletableFuture<?> loaded = CompletableFuture.allOf(
+                        (CompletableFuture<?>) loadChunk.invoke(world, 0, 0, true),
+                        (CompletableFuture<?>) loadChunk.invoke(world, 512, 512, true));
+                loaded.whenComplete((chunk, error) ->
+                {
+                    if (error != null) done.accept(error);
+                    else SchedulerAdapter.region(plugin, world, 0, 0, checks);
+                });
+            }
+            catch (Throwable error) { done.accept(error); }
+        }
+    }
+
     public static void run(Plugin plugin) throws Exception
     {
-        check(Bukkit.isPrimaryThread(), "checks must run on the server thread");
+        check(FoliaSupport.PRESENT ? FoliaSupport.owns(Bukkit.getWorlds().getFirst(), 0, 0) : Bukkit.isPrimaryThread(),
+                "checks must run on the owning server region");
         var field = StallPlugin.class.getDeclaredField("shops");
         field.setAccessible(true);
         PaperShops shops = (PaperShops) field.get(plugin);
         checkCodec(plugin);
         checkCommands(shops);
-        checkShop(shops);
-        plugin.getLogger().info("Checked native item round trips and upgrades, commands, menus, trades and hopper protection.");
+        if (!FoliaSupport.PRESENT) checkShop(shops);
+        checkLifecycle(shops);
+        plugin.getLogger().info(FoliaSupport.PRESENT
+                ? "Checked Folia region ownership, item data, commands, explosions and reconciliation; player GUI/trade checks require real players."
+                : "Checked native items, commands, menus, trades, stock protection, explosions and reconciliation.");
+    }
+
+    private static void checkLifecycle(PaperShops shops)
+    {
+        World world = Bukkit.getWorlds().getFirst();
+        Block block = world.getBlockAt(0, 80, 0);
+        block.setType(Material.BARREL);
+        Shop<ItemStack> shop = new Shop<>(UUID.randomUUID(), UUID.randomUUID(), "LifecycleOwner", PaperShops.locate(block), true);
+        shops.registry().add(shop);
+        shops.reconcile(shop);
+        check(shops.registry().isCurrent(shop), "unmarked replacement barrel must pause, not refund");
+        PaperMarkers.stamp(block, shop);
+        ((Barrel) block.getState()).getInventory().addItem(new ItemStack(Material.DIAMOND, 7));
+        Block neighbour = world.getBlockAt(1, 80, 0);
+        neighbour.setType(Material.STONE);
+        world.createExplosion(block.getLocation().add(0.5, 0.5, 0.5), 5.0F, false, true);
+        check(block.getType() == Material.BARREL && count(((Barrel) block.getState()).getInventory(), Material.DIAMOND) == 7,
+                "explosion destroyed a shop or its stock");
+        check(neighbour.getType() != Material.STONE, "shop protection cancelled the entire explosion");
+        block.setType(Material.AIR);
+        shops.reconcile(shop);
+        shops.reconcile(shop);
+        check(!shops.registry().isCurrent(shop) && shops.tokensOwed(shop.owner()) == 1, "missing barrel was not refunded exactly once");
+
+        block.setType(Material.BARREL);
+        Shop<ItemStack> conflict = new Shop<>(UUID.randomUUID(), UUID.randomUUID(), "ConflictOwner", PaperShops.locate(block), true);
+        shops.registry().add(conflict);
+        PaperMarkers.stamp(block, shop);
+        shops.reconcile(conflict);
+        check(!shops.registry().isCurrent(conflict) && shops.tokensOwed(conflict.owner()) == 1, "conflicting marker did not orphan the old record");
+        check(PaperMarkers.carries(block, shop), "cleanup erased another shop's marker");
+        block.setType(Material.AIR);
     }
 
     private static void checkCodec(Plugin plugin) throws Exception

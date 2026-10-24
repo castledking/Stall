@@ -195,6 +195,71 @@ class ShopPersistenceTest
         return new ShopPersistence<>(directory, TestItems.CODEC, log);
     }
 
+    @Test
+    void orphansKeepTheirOffersAndRefundOnlyOnceAcrossRestarts() throws IOException
+    {
+        Shop<Item> shop = shop(0);
+        TokenReturns returns = new TokenReturns();
+        try (ShopPersistence<Item> store = store())
+        {
+            store.saveShop(shop);
+            returns.refund(shop);
+            store.archiveShop(shop, returns, "barrel missing");
+        }
+        Path archived = directory.resolve("shops/_orphaned/" + shop.id() + ".json");
+        assertTrue(Files.readString(archived).contains("barrel missing"));
+        assertFalse(Files.exists(directory.resolve("shops/" + shop.id() + ".json")));
+        ShopRegistry<Item> registry = new ShopRegistry<>();
+        TokenReturns reloaded = new TokenReturns();
+        load(registry, reloaded);
+        assertTrue(registry.all().isEmpty());
+        assertEquals(1, reloaded.claim(shop.owner()));
+        reloaded.refund(shop);
+        assertEquals(0, reloaded.owed(shop.owner()));
+    }
+
+    @Test
+    void interruptedArchivalCannotResurrectARefundedShop() throws IOException
+    {
+        Shop<Item> shop = shop(0);
+        TokenReturns returns = new TokenReturns();
+        try (ShopPersistence<Item> store = store())
+        {
+            store.saveShop(shop);
+            returns.refund(shop);
+            // Crash point: the refund is saved but the old shop file still exists.
+            store.saveReturns(returns);
+        }
+        ShopRegistry<Item> registry = new ShopRegistry<>();
+        TokenReturns reloaded = new TokenReturns();
+        load(registry, reloaded);
+        assertTrue(registry.all().isEmpty());
+        assertEquals(1, reloaded.owed(shop.owner()));
+        assertFalse(Files.exists(directory.resolve("shops/" + shop.id() + ".json")));
+        assertTrue(Files.exists(directory.resolve("shops/_orphaned/" + shop.id() + ".json")));
+        load(new ShopRegistry<>(), reloaded);
+        assertEquals(1, reloaded.owed(shop.owner()));
+    }
+
+    @Test
+    void claimingAfterArchivalDoesNotRestoreAnOlderRefundSnapshot()
+    {
+        Shop<Item> shop = shop(0);
+        TokenReturns returns = new TokenReturns();
+        try (ShopPersistence<Item> store = store())
+        {
+            store.saveShop(shop);
+            returns.refund(shop);
+            store.archiveShop(shop, returns, "barrel missing");
+            assertEquals(1, returns.claim(shop.owner()));
+            store.saveReturns(returns);
+        }
+        TokenReturns reloaded = new TokenReturns();
+        load(new ShopRegistry<>(), reloaded);
+        assertEquals(0, reloaded.owed(shop.owner()));
+        assertTrue(reloaded.wasRefunded(shop.id()));
+    }
+
     private ShopPersistence.LoadReport load(ShopRegistry<Item> registry, TokenReturns returns)
     {
         try (ShopPersistence<Item> store = store())

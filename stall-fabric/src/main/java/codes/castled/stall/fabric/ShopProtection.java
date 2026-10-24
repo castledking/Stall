@@ -3,6 +3,7 @@ package codes.castled.stall.fabric;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
+import java.util.List;
 
 /**
  * What Stall's mixins ask about the world. Public only so the mixins can reach it; not an API. Until the
@@ -31,5 +32,14 @@ public final class ShopProtection
         }
         // Most hoppers sit under something other than a barrel; skip the shop lookup for them.
         return !(level.getBlockEntity(pos) instanceof BarrelBlockEntity) || shops.shopAt(level, pos).isEmpty();
+    }
+
+    public static List<BlockPos> filterExplosion(Level level, List<BlockPos> blocks)
+    {
+        FabricShops shops = active;
+        // Vanilla shuffles/mutates this list after the hook; Stream.toList() would crash an explosion.
+        java.util.ArrayList<BlockPos> affected = new java.util.ArrayList<>(blocks);
+        if (shops != null) affected.removeIf(pos -> shops.shopAt(level, pos).isPresent());
+        return affected;
     }
 }

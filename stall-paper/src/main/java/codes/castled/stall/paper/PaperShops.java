@@ -3,6 +3,7 @@ package codes.castled.stall.paper;
 import codes.castled.stall.menu.OfferEditor;
 import codes.castled.stall.offer.Offer;
 import codes.castled.stall.shop.Shop;
+import codes.castled.stall.shop.ShopAnchor;
 import codes.castled.stall.shop.ShopLimits;
 import codes.castled.stall.shop.ShopLocation;
 import codes.castled.stall.shop.ShopRegistry;
@@ -32,7 +33,8 @@ import org.bukkit.plugin.Plugin;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -41,7 +43,7 @@ import java.util.logging.Level;
 
 /**
  * The server's shops and everything that happens to them: making and removing them, opening their menus,
- * checking a menu is still valid, editing offers and carrying out trades. Main thread only.
+ * checking a menu is still valid, editing offers and carrying out trades. World and inventory operations run on their owning server region.
  */
 final class PaperShops
 {
@@ -61,26 +63,84 @@ final class PaperShops
     private final ClickThrottle throttle = new ClickThrottle(BUY_COOLDOWN_TICKS);
     private final ShopViewers<StallMenu> viewers = new ShopViewers<>();
     private final TokenReturns tokenReturns = new TokenReturns();
-    private final Set<UUID> buyerPreview = new HashSet<>();
+    private final Set<UUID> buyerPreview = ConcurrentHashMap.newKeySet();
     private ShopPersistence<ItemStack> persistence;
-    private long currentTick;
+    private final AtomicLong currentTick = new AtomicLong();
+    private final SchedulerFacade scheduler;
 
     PaperShops(Plugin plugin)
     {
         this.plugin = plugin;
+        this.scheduler = new SchedulerFacade(plugin);
+    }
+
+    SchedulerFacade scheduler() { return scheduler; }
+
+    /** A trade may touch both inventories only while this thread owns the player and the shop chunk. */
+    boolean canAccess(Player player, Shop<ItemStack> shop)
+    {
+        if (!registry.isCurrent(shop) || !FoliaSupport.owns(player) || !player.isOnline()) return false;
+        ShopLocation location = shop.location();
+        World world = player.getWorld();
+        return world.getKey().toString().equals(location.world())
+                && FoliaSupport.owns(world, location.x() >> 4, location.z() >> 4);
+    }
+
+    private void close(StallMenu menu)
+    {
+        scheduler.entity(menu.viewer(), () ->
+        {
+            if (menu.viewer().getOpenInventory().getTopInventory() == menu.getInventory()) menu.viewer().closeInventory();
+        });
+    }
+
+    /** Only the metadata scan is global. Reading a block is always scheduled on its own region. */
+    void sweep()
+    {
+        for (Shop<ItemStack> shop : registry.all())
+        {
+            World world = Bukkit.getWorlds().stream().filter(loaded -> loaded.getKey().toString().equals(shop.location().world()))
+                    .findFirst().orElse(null);
+            if (world != null) scheduler.region(world, shop.location().x() >> 4, shop.location().z() >> 4, () -> reconcile(shop));
+        }
+    }
+
+    void chunkLoaded(World world, int x, int z)
+    {
+        scheduler.afterChunkLoad(world, x, z, () -> registry.inChunk(world.getKey().toString(), x, z).forEach(this::reconcile));
+    }
+
+    void reconcile(Shop<ItemStack> shop)
+    {
+        if (!registry.isCurrent(shop)) return;
+        Optional<Block> anchor = block(shop);
+        if (anchor.isEmpty()) return; // Unloaded or foreign region: leave the record alone.
+        Block block = anchor.get();
+        ShopAnchor.Status status = ShopAnchor.inspect(true, block.getState() instanceof Barrel,
+                PaperMarkers.marker(block), shop.id());
+        if (status != ShopAnchor.Status.ORPHANED || !registry.remove(shop)) return;
+        synchronized (tokenReturns)
+        {
+            tokenReturns.refund(shop);
+            if (persistence != null) persistence.archiveShop(shop, tokenReturns, "container missing or owned by another shop");
+        }
+        viewers.of(shop.id()).forEach(this::close);
+        plugin.getLogger().info("Archived orphaned shop " + shop.id() + " at " + shop.location()
+                + "; its owner can collect any returned token with /stall reclaim.");
     }
 
     /** A scheduler-driven clock, unaffected by time commands and available on both Spigot and Paper. */
     void tick()
     {
-        currentTick++;
-        if (currentTick % 5 == 0) closeInvalidMenus();
-        if (currentTick % 20 == 0) refreshOpenMenus();
+        long tick = currentTick.incrementAndGet();
+        if (tick % 5 == 0) closeInvalidMenus();
+        if (tick % 20 == 0) refreshOpenMenus();
+        if (tick % 200 == 0) sweep();
     }
 
     long currentTick()
     {
-        return currentTick;
+        return currentTick.get();
     }
 
     // --- Saving ------------------------------------------------------------------------------------
@@ -163,7 +223,8 @@ final class PaperShops
         NamespacedKey key = NamespacedKey.fromString(location.world());
         World world = key == null ? null : Bukkit.getWorlds().stream()
                 .filter(loaded -> loaded.getKey().equals(key)).findFirst().orElse(null);
-        if (world == null || !world.isChunkLoaded(location.x() >> 4, location.z() >> 4))
+        if (world == null || !FoliaSupport.owns(world, location.x() >> 4, location.z() >> 4)
+                || !world.isChunkLoaded(location.x() >> 4, location.z() >> 4))
         {
             return Optional.empty();
         }
@@ -186,10 +247,11 @@ final class PaperShops
      */
     void reactivate(Player player, Block block, Shop<ItemStack> shop)
     {
+        if (!canAccess(player, shop)) return;
         PaperMarkers.stamp(block, shop);
         player.sendMessage(BukkitItems.text("This shop was paused because its barrel lost its Stall marker. It's open "
                 + "again.", ChatColor.GREEN));
-        Bukkit.getScheduler().runTask(plugin, () ->
+        scheduler.laterEntity(player, () ->
         {
             if (player.isOnline() && registry.isCurrent(shop))
             {
@@ -221,12 +283,13 @@ final class PaperShops
     /** Hands {@code player} every token they're owed; returns how many. */
     int reclaimTokens(Player player)
     {
-        int owed = tokenReturns.claim(player.getUniqueId());
-        if (owed > 0)
+        int owed;
+        synchronized (tokenReturns)
         {
-            saveReturns();
-            giveTokens(player, owed);
+            owed = tokenReturns.claim(player.getUniqueId());
+            if (owed > 0) saveReturns();
         }
+        if (owed > 0) giveTokens(player, owed);
         return owed;
     }
 
@@ -247,7 +310,8 @@ final class PaperShops
         NamespacedKey key = NamespacedKey.fromString(location.world());
         World world = key == null ? null : Bukkit.getWorlds().stream()
                 .filter(loaded -> loaded.getKey().equals(key)).findFirst().orElse(null);
-        if (world == null || !world.isChunkLoaded(location.x() >> 4, location.z() >> 4))
+        if (world == null || !FoliaSupport.owns(world, location.x() >> 4, location.z() >> 4)
+                || !world.isChunkLoaded(location.x() >> 4, location.z() >> 4))
         {
             return Optional.empty();
         }
@@ -290,6 +354,7 @@ final class PaperShops
      */
     void create(Player player, Block block, Barrel barrel)
     {
+        if (!FoliaSupport.owns(player) || !FoliaSupport.owns(block.getWorld(), block.getX() >> 4, block.getZ() >> 4)) return;
         if (!player.hasPermission("stall.create"))
         {
             player.sendMessage(BukkitItems.text("You don't have permission to make shops.", ChatColor.RED));
@@ -324,7 +389,7 @@ final class PaperShops
         player.sendMessage(BukkitItems.text("This barrel is now your shop. Set up its offers here; sneak and right-click "
                 + "it with an empty hand to come back.", ChatColor.GREEN));
         // Opening an inventory from the interact event itself is fine, but wait a tick so the click is done.
-        Bukkit.getScheduler().runTask(plugin, () ->
+        scheduler.laterEntity(player, () ->
         {
             if (player.isOnline() && registry.isCurrent(shop))
             {
@@ -355,14 +420,15 @@ final class PaperShops
      */
     TokenReturn remove(Shop<ItemStack> shop, Player actor, boolean broken)
     {
-        registry.remove(shop);
+        if (actor != null && !canAccess(actor, shop)) return TokenReturn.NONE;
+        if (!registry.remove(shop)) return TokenReturn.NONE;
         if (persistence != null)
         {
             persistence.deleteShop(shop);
         }
         for (StallMenu menu : viewers.of(shop.id()))
         {
-            menu.viewer().closeInventory();
+            close(menu);
         }
         // A barrel left standing becomes an ordinary barrel again.
         if (!broken)
@@ -384,8 +450,31 @@ final class PaperShops
         Player owner = Bukkit.getPlayer(shop.owner());
         if (owner == null)
         {
-            tokenReturns.add(shop.owner(), 1);
-            saveReturns();
+            synchronized (tokenReturns)
+            {
+                tokenReturns.add(shop.owner(), 1);
+                saveReturns();
+            }
+            return TokenReturn.OWED;
+        }
+        if (!FoliaSupport.owns(owner))
+        {
+            synchronized (tokenReturns)
+            {
+                tokenReturns.add(shop.owner(), 1);
+                saveReturns();
+            }
+            scheduler.entity(owner, () ->
+            {
+                if (!owner.isOnline()) return;
+                synchronized (tokenReturns)
+                {
+                    if (!tokenReturns.claimOne(shop.owner())) return;
+                    saveReturns();
+                }
+                give(owner, PaperTokens.create(1));
+                owner.sendMessage(BukkitItems.text("Your shop was removed. Its token is back in your inventory.", ChatColor.YELLOW));
+            });
             return TokenReturn.OWED;
         }
         give(owner, PaperTokens.create(1));
@@ -419,11 +508,13 @@ final class PaperShops
 
     void openBuyerMenu(Player player, Shop<ItemStack> shop)
     {
+        if (!canAccess(player, shop)) return;
         open(player, new BuyerMenu(this, player, shop));
     }
 
     void openOwnerMenu(Player player, Shop<ItemStack> shop)
     {
+        if (!canAccess(player, shop)) return;
         open(player, new OwnerMenu(this, player, shop));
     }
 
@@ -450,7 +541,7 @@ final class PaperShops
     {
         Shop<ItemStack> shop = menu.shop();
         Player player = menu.viewer();
-        if (!registry.isCurrent(shop) || !player.isOnline() || stock(shop).isEmpty() || !isActive(shop))
+        if (!canAccess(player, shop) || stock(shop).isEmpty() || !isActive(shop))
         {
             return false;
         }
@@ -471,10 +562,10 @@ final class PaperShops
     {
         for (StallMenu menu : viewers.all())
         {
-            if (!stillValid(menu))
+            scheduler.entity(menu.viewer(), () ->
             {
-                menu.viewer().closeInventory();
-            }
+                if (!stillValid(menu)) close(menu);
+            });
         }
     }
 
@@ -495,7 +586,7 @@ final class PaperShops
     {
         for (StallMenu menu : viewers.all())
         {
-            menu.viewer().closeInventory();
+            close(menu);
         }
     }
 
@@ -518,6 +609,16 @@ final class PaperShops
     /** Redraws a menu, or reopens it next tick if the offers now need a different number of rows. */
     private void update(StallMenu menu)
     {
+        scheduler.entity(menu.viewer(), () -> updateOwned(menu));
+    }
+
+    private void updateOwned(StallMenu menu)
+    {
+        if (!stillValid(menu))
+        {
+            close(menu);
+            return;
+        }
         if (menu.wantedRows() == menu.rows())
         {
             menu.render();
@@ -525,7 +626,7 @@ final class PaperShops
         else if (menu.claimReopen())
         {
             // Opening an inventory inside the click that caused this is unsafe, so it waits a tick.
-            Bukkit.getScheduler().runTask(plugin, () -> reopen(menu));
+            scheduler.laterEntity(menu.viewer(), () -> reopen(menu));
         }
     }
 
@@ -533,7 +634,7 @@ final class PaperShops
     private void reopen(StallMenu menu)
     {
         Player player = menu.viewer();
-        if (player.getOpenInventory().getTopInventory() != menu.getInventory() || !registry.isCurrent(menu.shop()))
+        if (player.getOpenInventory().getTopInventory() != menu.getInventory() || !stillValid(menu))
         {
             return;
         }

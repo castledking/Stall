@@ -42,7 +42,12 @@ final class PaperMarkers
 
     static boolean carries(Block block, Shop<?> shop)
     {
+        return shop.id().toString().equals(marker(block));
+    }
+
+    static String marker(Block block)
+    {
         return block.getState() instanceof Barrel barrel
-                && shop.id().toString().equals(barrel.getPersistentDataContainer().get(SHOP, PersistentDataType.STRING));
+                ? barrel.getPersistentDataContainer().get(SHOP, PersistentDataType.STRING) : null;
     }
 }

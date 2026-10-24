@@ -3,6 +3,7 @@ version: "${version}"
 main: codes.castled.stall.paper.StallPlugin
 # The oldest server Stall supports. Stall targets Minecraft 26.3 only for now.
 api-version: '26.3'
+folia-supported: true
 description: Physical player shops. Turn a barrel into a shop, stock it, and trade with other players.
 author: castledking
 website: https://castled.codes

@@ -10,11 +10,11 @@
   <a href="https://castled.codes"><img alt="CASTLED CODEX" src="https://castled.codes/assets/logo-banner.png" width="140" height="35"></a>
 </p>
 
-**Stall** is a player shop system for Minecraft servers. It runs as a plugin on Spigot, Paper and Purpur, and as a Fabric mod on dedicated servers. Players turn an ordinary barrel into a shop, stock it with items, and set up trades that other players can buy with a click.
+**Stall** is a player shop system for Minecraft servers. It runs as a plugin on Spigot, Paper, Purpur and Folia, and as a Fabric mod on dedicated servers. Players turn an ordinary barrel into a shop, stock it with items, and set up trades that other players can buy with a click.
 
 Stall shops are real blocks with real stock. There is no virtual storage, no client mod and no resource pack: what a shop sells is whatever sits in its container, and players on an unmodified client can use every part of it.
 
-> **Status:** Stall is new. Barrels are the only shop container so far, and shops aren't protected from explosions yet; both are coming in later versions. See [docs/PLAN.md](docs/PLAN.md) for the plan and progress.
+> **Status:** Stall is new. Barrels are the only shop container so far; chests are planned next. See [docs/PLAN.md](docs/PLAN.md) for the plan and progress.
 
 ---
 
@@ -38,7 +38,7 @@ Barrels are the first supported container. Single and double chests are planned 
 - **Exact item matching:** enchantments, names, durability, potion types and other item data all count, so a renamed or damaged item is never mistaken for the item an offer asks for.
 - **Shop limits by permission:** set how many shops each rank can own using permission tiers such as `stall.limit.5`. Works with LuckPerms on both Paper and Fabric.
 - **Claim friendly:** you can only turn a container into a shop where you could open it anyway, so GriefPrevention and other protection plugins and mods decide where shops can go. Buyers can still use shops inside claims they aren't trusted in.
-- **Protected stock:** other players can't break a shop or open its container, and hoppers can't drain it, though they can still fill it. Explosions aren't blocked yet, so keep shops away from creepers and TNT for now.
+- **Protected stock:** other players can't break a shop or open its container, and hoppers can't drain it, though they can still fill it. Explosions leave shop barrels and their stock intact while damaging nearby blocks normally.
 - **Vanilla clients:** no client mod or resource pack is needed on either platform.
 - **One data format:** Spigot, Paper and Fabric servers read and write the same shop data.
 
@@ -48,8 +48,10 @@ Stall targets Minecraft 26.3 only for now.
 
 | Platform | Minecraft | Java | Also needs |
 | --- | --- | --- | --- |
-| Spigot / Paper / Purpur | 26.3 | 25 | A server running one of these platforms |
+| Spigot / Paper / Purpur / Folia | 26.3 | 25 | A server running one of these platforms |
 | Fabric (dedicated server) | 26.3 | 25 | Fabric Loader 0.19.3 or newer, Fabric API for 26.3 |
+
+Folia was verified on 26.3 build 5; earlier Folia builds are unverified.
 
 LuckPerms is optional on both platforms. Without a permission plugin or mod, Stall uses the defaults in the [permissions](#permissions) table: everyone can trade and own 3 shops, and operators can manage every shop.
 
@@ -90,12 +92,13 @@ Stall keeps its data in the world's own save folder, so backing up the world bac
 <world>/stall/
   shops/<shop id>.json   one file per shop: its owner, location and offers
   shops/_broken/         files that couldn't be loaded, moved aside instead of deleted
+  shops/_orphaned/       removed shop records kept for recovery
   returns.json           tokens waiting for /stall reclaim
 ```
 
 Spigot, Paper and Fabric use the same files. Every shop's barrel also carries the shop's id. If the barrel at a
 shop's spot doesn't, for example because it was replaced, the shop pauses until its owner sneaks and
-right-clicks it, rather than selling whatever is in the new barrel.
+right-clicks it, rather than selling whatever is in the new barrel. Missing containers are checked on chunk load, on interaction, and every ten seconds while loaded. Their shop records are archived and any consumed token is queued for `/stall reclaim`; unloaded chunks are left alone.
 
 ## Building
 
@@ -108,7 +111,7 @@ Building needs Java 25.
 | Module | What it is | Output |
 | --- | --- | --- |
 | `stall-core` | Shop model, trade planner and menu layout, shared by both platforms. It has no Paper, Fabric or Minecraft code, and the build fails if any creeps in. | bundled into both jars |
-| `stall-paper` | The plugin for Spigot, Paper and Purpur. | `stall-paper/build/libs/Stall-Paper-<version>.jar` |
+| `stall-paper` | The plugin for Spigot, Paper, Purpur and Folia. | `stall-paper/build/libs/Stall-Paper-<version>.jar` |
 | `stall-fabric` | The Fabric mod. Install it with Fabric API. | `stall-fabric/build/libs/Stall-Fabric-<version>.jar` |
 
 [docs/TESTING.md](docs/TESTING.md) is the checklist for testing a build in game.

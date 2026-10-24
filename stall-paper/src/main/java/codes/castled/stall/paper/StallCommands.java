@@ -37,6 +37,12 @@ final class StallCommands implements CommandExecutor, TabCompleter
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args)
     {
+        if (executor(sender) instanceof Player player && !FoliaSupport.owns(player))
+        {
+            String[] arguments = args.clone();
+            shops.scheduler().entity(player, () -> { if (player.isOnline()) execute(sender, arguments); });
+            return true;
+        }
         execute(sender, args);
         return true;
     }
@@ -248,6 +254,7 @@ final class StallCommands implements CommandExecutor, TabCompleter
         }
         Shop<ItemStack> shop = target.get();
         boolean own = shop.isOwner(player.getUniqueId());
+        if (!shops.canAccess(player, shop)) return fail(source, "Move closer to the shop and try again.");
         if (!own && !player.hasPermission("stall.admin"))
         {
             return fail(source, "This shop belongs to " + shop.ownerName() + ".");
@@ -290,18 +297,22 @@ final class StallCommands implements CommandExecutor, TabCompleter
                 : "Your own shops open normally again.", on ? 1 : 0);
     }
 
-    private static int give(CommandSender source, String name, int amount)
+    private int give(CommandSender source, String name, int amount)
     {
         Player target = Bukkit.getPlayerExact(name);
         if (target == null)
         {
             return fail(source, name + " isn't online.");
         }
-        PaperShops.giveTokens(target, amount);
-        String tokens = amount == 1 ? "a Stall token" : amount + " Stall tokens";
-        target.sendMessage(BukkitItems.text("You received " + tokens + ". Use one on a barrel to make it your shop.",
-                ChatColor.GREEN));
-        return succeed(source, "Gave " + target.getName() + " " + tokens + ".", amount);
+        shops.scheduler().entity(target, () ->
+        {
+            if (!target.isOnline()) return;
+            PaperShops.giveTokens(target, amount);
+            String tokens = amount == 1 ? "a Stall token" : amount + " Stall tokens";
+            target.sendMessage(BukkitItems.text("You received " + tokens + ". Use one on a barrel to make it your shop.", ChatColor.GREEN));
+            succeed(source, "Gave " + target.getName() + " " + tokens + ".", amount);
+        });
+        return amount;
     }
 
     private static List<Shop<ItemStack>> ownedBy(PaperShops shops, Predicate<Shop<ItemStack>> filter)

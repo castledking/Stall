@@ -16,7 +16,7 @@ import java.util.UUID;
  * drawn from, so a click on a menu that no longer matches the shop is refused instead of buying
  * something the buyer did not see.
  *
- * <p>Shops are only read and changed on the server thread.
+ * <p>Offers are immutable snapshots. Changes run on the shop's owning server region.
  */
 public final class Shop<I>
 {
@@ -28,9 +28,9 @@ public final class Shop<I>
     private final ShopLocation location;
     private final boolean tokenConsumed;
     private final Instant created;
-    private List<Offer<I>> offers = List.of();
-    private List<String> preservedOffers = List.of();
-    private int revision;
+    private volatile List<Offer<I>> offers = List.of();
+    private volatile List<String> preservedOffers = List.of();
+    private volatile int revision;
 
     /**
      * @param tokenConsumed whether making the shop used up a token, which is then handed back when the
@@ -57,7 +57,7 @@ public final class Shop<I>
      * not. A shop loaded from disk may briefly hold more than {@link #MAX_OFFERS} offers if unreadable
      * ones became readable again; only adding new offers checks the limit.
      */
-    public void restore(List<Offer<I>> offers, List<String> preservedOffers)
+    public synchronized void restore(List<Offer<I>> offers, List<String> preservedOffers)
     {
         this.offers = List.copyOf(offers);
         this.preservedOffers = List.copyOf(preservedOffers);
@@ -134,7 +134,7 @@ public final class Shop<I>
         return offers.size() >= MAX_OFFERS;
     }
 
-    public void addOffer(Offer<I> offer)
+    public synchronized void addOffer(Offer<I> offer)
     {
         Objects.requireNonNull(offer, "offer");
         if (isFull())
@@ -146,7 +146,7 @@ public final class Shop<I>
         setOffers(updated);
     }
 
-    public void replaceOffer(int index, Offer<I> offer)
+    public synchronized void replaceOffer(int index, Offer<I> offer)
     {
         Objects.requireNonNull(offer, "offer");
         List<Offer<I>> updated = new ArrayList<>(offers);
@@ -154,7 +154,7 @@ public final class Shop<I>
         setOffers(updated);
     }
 
-    public void removeOffer(int index)
+    public synchronized void removeOffer(int index)
     {
         List<Offer<I>> updated = new ArrayList<>(offers);
         updated.remove(index);

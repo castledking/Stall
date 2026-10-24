@@ -7,23 +7,23 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Every shop the server knows, found by the location of its container. Server thread only. */
+/** Every shop the server knows, found by the location of its container. Bookkeeping methods are synchronized; world access still belongs to its owning region. */
 public final class ShopRegistry<I>
 {
     private final Map<ShopLocation, Shop<I>> byLocation = new HashMap<>();
 
-    public Optional<Shop<I>> at(ShopLocation location)
+    public synchronized Optional<Shop<I>> at(ShopLocation location)
     {
         return Optional.ofNullable(byLocation.get(location));
     }
 
     /** Whether {@code shop} is still the shop registered at its own location. */
-    public boolean isCurrent(Shop<I> shop)
+    public synchronized boolean isCurrent(Shop<I> shop)
     {
         return byLocation.get(shop.location()) == shop;
     }
 
-    public void add(Shop<I> shop)
+    public synchronized void add(Shop<I> shop)
     {
         Shop<I> existing = byLocation.putIfAbsent(shop.location(), shop);
         if (existing != null)
@@ -32,17 +32,23 @@ public final class ShopRegistry<I>
         }
     }
 
-    public boolean remove(Shop<I> shop)
+    public synchronized boolean remove(Shop<I> shop)
     {
         return byLocation.remove(shop.location(), shop);
     }
 
-    public Collection<Shop<I>> all()
+    public synchronized Collection<Shop<I>> all()
     {
         return List.copyOf(byLocation.values());
     }
 
-    public long countOwnedBy(UUID owner)
+    public synchronized List<Shop<I>> inChunk(String world, int x, int z)
+    {
+        return byLocation.values().stream().filter(shop -> shop.location().world().equals(world)
+                && (shop.location().x() >> 4) == x && (shop.location().z() >> 4) == z).toList();
+    }
+
+    public synchronized long countOwnedBy(UUID owner)
     {
         return byLocation.values().stream().filter(shop -> shop.isOwner(owner)).count();
     }

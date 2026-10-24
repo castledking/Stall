@@ -14,7 +14,8 @@ public final class StallPlugin extends JavaPlugin
         shops = new PaperShops(this);
         shops.startStorage();
         getServer().getPluginManager().registerEvents(new ShopListener(shops), this);
-        getServer().getScheduler().runTaskTimer(this, shops::tick, 1, 1);
+        shops.scheduler().start(shops::tick);
+        shops.sweep();
         StallCommands commands = new StallCommands(shops);
         var command = Objects.requireNonNull(getCommand("stall"), "stall command missing from plugin.yml");
         command.setExecutor(commands);
@@ -27,6 +28,7 @@ public final class StallPlugin extends JavaPlugin
         if (shops != null)
         {
             shops.closeAll();
+            shops.scheduler().stop();
             shops.stopStorage();
         }
     }

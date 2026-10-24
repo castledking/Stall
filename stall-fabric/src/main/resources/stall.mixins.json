@@ -3,7 +3,8 @@
   "package": "codes.castled.stall.fabric.mixin",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
-    "HopperBlockEntityMixin"
+    "HopperBlockEntityMixin",
+    "ServerExplosionMixin"
   ],
   "injectors": {
     "defaultRequire": 1
