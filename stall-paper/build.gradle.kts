@@ -3,7 +3,7 @@ plugins {
 }
 
 val javaVersion = providers.gradleProperty("java_version").get().toInt()
-val paperApiVersion = providers.gradleProperty("paper_api_version").get()
+val spigotApiVersion = providers.gradleProperty("spigot_api_version").get()
 val coreProject = project(":stall-core")
 
 base {
@@ -16,11 +16,12 @@ java {
 
 repositories {
     mavenCentral()
-    maven("https://repo.papermc.io/repository/maven-public/")
+    maven("https://hub.spigotmc.org/nexus/content/repositories/snapshots/")
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:$paperApiVersion")
+    // Compiling against Spigot prevents accidental calls to Paper-only APIs.
+    compileOnly("org.spigotmc:spigot-api:$spigotApiVersion")
     implementation(project(":stall-core"))
 }
 
@@ -38,14 +39,48 @@ tasks.processResources {
 }
 
 tasks.jar {
-    // The core ships inside the plugin jar. It only uses its own package and the Gson Paper provides.
+    // Keep the existing artifact name; this one plugin jar works on Spigot and Paper.
+    // The core uses the Gson both servers provide.
     val coreJar = coreProject.tasks.named<Jar>("jar")
     dependsOn(coreJar)
     from(coreJar.map { zipTree(it.archiveFile) }) {
         exclude("META-INF/MANIFEST.MF")
     }
     manifest {
-        // Stall only uses the Paper API, so Paper has nothing to remap.
+        // The native item codec uses Minecraft's unobfuscated 26.3 names.
         attributes("paperweight-mappings-namespace" to "mojang")
     }
+}
+
+// Optional checks that need a running server. These artifacts are never release artifacts.
+val serverTest by sourceSets.creating {
+    compileClasspath += sourceSets.main.get().output + configurations.compileClasspath.get()
+    runtimeClasspath += output + compileClasspath
+}
+
+val serverTestJar = tasks.register<Jar>("serverTestJar") {
+    group = "verification"
+    description = "Builds Stall with checks callable by the isolated server-test probe."
+    dependsOn(tasks.jar, tasks.named(serverTest.classesTaskName))
+    archiveClassifier.set("server-tests")
+    from(tasks.jar.map { zipTree(it.archiveFile) })
+    from(serverTest.output) {
+        exclude("**/ServerTestProbe.class", "probe-plugin.yml")
+    }
+    manifest { attributes("paperweight-mappings-namespace" to "mojang") }
+}
+
+val serverTestProbeJar = tasks.register<Jar>("serverTestProbeJar") {
+    group = "verification"
+    dependsOn(tasks.named(serverTest.classesTaskName))
+    archiveBaseName.set("Stall-Server-Test-Probe")
+    from(serverTest.output) {
+        include("**/ServerTestProbe.class", "probe-plugin.yml")
+        rename("probe-plugin.yml", "plugin.yml")
+    }
+}
+
+tasks.register("serverTestArtifacts") {
+    group = "verification"
+    dependsOn(serverTestJar, serverTestProbeJar)
 }

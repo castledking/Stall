@@ -9,7 +9,6 @@ import codes.castled.stall.offer.OfferSlots;
 import codes.castled.stall.shop.Shop;
 import codes.castled.stall.trade.SlotInventory;
 import codes.castled.stall.trade.TradePlanner;
-import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -33,7 +32,7 @@ final class OwnerMenu extends StallMenu
     OwnerMenu(PaperShops shops, Player viewer, Shop<ItemStack> shop)
     {
         super(shops, viewer, shop, ShopMenuLayout.ownerRows(shop.offers().size()),
-                Component.text("Edit " + shop.ownerName() + "'s Stall"));
+                BukkitItems.text("Edit " + shop.ownerName() + "'s Stall"));
         render();
     }
 
@@ -103,7 +102,7 @@ final class OwnerMenu extends StallMenu
             render();
             return;
         }
-        if (removal.press(shop.offers().get(row).id(), Bukkit.getCurrentTick()))
+        if (removal.press(shop.offers().get(row).id(), shops.currentTick()))
         {
             shop.removeOffer(row);
             shops.edited(shop);
@@ -120,7 +119,7 @@ final class OwnerMenu extends StallMenu
         beginRender();
         TradePlanner<ItemStack> planner = shops.planner();
         SlotInventory<ItemStack> stock = shops.stock(shop).map(PaperShops::stockSlots).orElse(null);
-        long tick = Bukkit.getCurrentTick();
+        long tick = shops.currentTick();
 
         List<Offer<ItemStack>> offers = shop.offers();
         for (int row = 0; row < rows(); row++)

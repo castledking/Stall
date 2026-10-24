@@ -3,7 +3,6 @@ package codes.castled.stall.paper;
 import codes.castled.stall.menu.MenuClick;
 import codes.castled.stall.menu.ShopMenuLayout;
 import codes.castled.stall.shop.Shop;
-import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
@@ -27,7 +26,7 @@ abstract class StallMenu implements InventoryHolder
     private int revision;
     private boolean reopenPending;
 
-    StallMenu(PaperShops shops, Player viewer, Shop<ItemStack> shop, int rows, Component title)
+    StallMenu(PaperShops shops, Player viewer, Shop<ItemStack> shop, int rows, String title)
     {
         this.shops = shops;
         this.viewer = viewer;

@@ -7,7 +7,7 @@ Rounds one to four passed. The results are in [PLAN.md](PLAN.md#15-progress).
 
 ## Setup
 
-- **Paper:** put `Stall-Paper-<version>.jar` in a Paper 26.3 server's `plugins` folder.
+- **Spigot / Paper:** put `Stall-Paper-<version>.jar` in a Spigot, Paper or Purpur 26.3 server's `plugins` folder.
 - **Fabric:** put `Stall-Fabric-<version>.jar` and Fabric API for 26.3 in a dedicated server's `mods`
   folder. Fabric Loader 0.19.3 or newer.
 - Join with a vanilla 26.3 client. Nothing goes on the client.
@@ -45,3 +45,44 @@ These are later milestones, not prototype bugs:
 - While a shop is paused, only its owner or an operator can break its barrel or open it.
 - A shop saved before this fix may still have a slot above one stack. It keeps trading that amount; editing
   the slot brings it back to a stack.
+
+## Automated Spigot and Paper checks
+
+The plugin is compiled against Spigot API 26.3, so ordinary plugin code cannot accidentally call Paper-only
+methods. The item codec binds Minecraft's native 26.3 codec at enable time to keep the same item format
+as Paper and Fabric. Unit tests include real Spigot-written items and token identity on Fabric.
+
+Build optional server-test artifacts with Java 25:
+
+```bash
+./gradlew :stall-paper:serverTestArtifacts
+```
+
+On a separate, disposable Spigot 26.3 server, install these two files in `plugins/`:
+
+- `stall-paper/build/libs/Stall-Paper-<version>-server-tests.jar`
+- `stall-paper/build/libs/Stall-Server-Test-Probe-<version>.jar`
+
+Remove any ordinary Stall jar from that test server first. The probe calls checks bundled with the
+test-only Stall jar, then **stops the server**. A successful log contains `STALL_SERVER_CHECKS_PASS`;
+failures contain `STALL_SERVER_CHECKS_FAIL` with the cause. Do not deploy either test jar to a live server.
+The same checks run on Paper 26.3.
+
+Checks cover native item round trips (names, lore, damage, enchantments, custom data, potions and custom
+stack sizes), old-item upgrades, future/unknown-item rejection, command permissions and amount bounds,
+menu rendering and click cancellation, two-for-two purchases, repeated clicks, failed trades leaving both
+inventories unchanged, barrel markers, hopper extraction/input and break protection. Player inventories
+and clicks are simulated against real Bukkit inventories; this does not replace a vanilla-client test.
+
+For cross-server item checks, start each test server with the same JVM property, for example
+`-Dstall.test.exchangeDir=/tmp/stall-item-exchange`. Run Spigot, then Paper, then Spigot again. Each server
+writes its items there and verifies every existing fixture, covering both migration directions. Use an
+empty exchange directory when changing fixture definitions.
+
+## Spigot client retest
+
+- [ ] Obtain a token, turn a barrel into a shop, and restart: the shop and its offers reload.
+- [ ] Configure two payment and two reward items; buy from a second vanilla client and check all quantities.
+- [ ] Check shift-click, number keys, F, Q, double-click and drag in both menus; display items cannot escape.
+- [ ] Check growing menus with an item on the cursor, ownership, permission limits and claim protection.
+- [ ] Move a world between Spigot and Paper; offers, stock and token markers continue to work.

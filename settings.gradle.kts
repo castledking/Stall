@@ -1,9 +1,9 @@
-// Stall - physical player shops for Paper and Fabric servers, by CASTLED CODEX.
+// Stall - physical player shops for Spigot, Paper and Fabric servers, by CASTLED CODEX.
 //
 // Module layout:
 //   :stall-core    platform-neutral shop model, trade planner and menu layouts. No Paper, no Fabric,
 //                  no Minecraft classes; checkCoreBoundary fails the build if any creep in.
-//   :stall-paper   the Paper plugin.
+//   :stall-paper   one Bukkit plugin for Spigot, Paper and Purpur.
 //   :stall-fabric  the Fabric mod, for dedicated servers. Vanilla clients need nothing installed.
 pluginManagement {
     val loomVersion = providers.gradleProperty("loom_version").get()

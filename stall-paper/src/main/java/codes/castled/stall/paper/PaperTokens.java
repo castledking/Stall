@@ -1,15 +1,13 @@
 package codes.castled.stall.paper;
 
 import codes.castled.stall.shop.Tokens;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
-import org.bukkit.Material;
+import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Stall tokens: paper with a name, a glint and a {@code stall:token} marker in its persistent data, which
@@ -25,14 +23,14 @@ final class PaperTokens
 
     static ItemStack create(int count)
     {
-        ItemStack token = ItemStack.of(Material.PAPER, count);
-        token.editMeta(meta ->
+        // The legacy text setters encode style defaults differently on Spigot and Paper. Parsing the
+        // same vanilla components keeps token identity identical, including the Fabric token's text.
+        String lore = Tokens.LORE.stream().map(line -> text(line, "gray")).collect(Collectors.joining(","));
+        ItemStack token = Bukkit.getItemFactory().createItemStack("minecraft:paper[minecraft:custom_name="
+                + text(Tokens.NAME, "gold") + ",minecraft:lore=[" + lore + "],minecraft:enchantment_glint_override=true]");
+        token.setAmount(count);
+        BukkitItems.editMeta(token, meta ->
         {
-            meta.displayName(Component.text(Tokens.NAME, NamedTextColor.GOLD).decoration(TextDecoration.ITALIC, false));
-            meta.lore(Tokens.LORE.stream()
-                    .map(line -> (Component) Component.text(line, NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false))
-                    .toList());
-            meta.setEnchantmentGlintOverride(true);
             meta.getPersistentDataContainer().set(MARKER, PersistentDataType.BYTE, (byte) 1);
         });
         return token;
@@ -40,6 +38,12 @@ final class PaperTokens
 
     static boolean isToken(ItemStack stack)
     {
-        return stack != null && !stack.isEmpty() && stack.getPersistentDataContainer().has(MARKER);
+        return !BukkitItems.isEmpty(stack) && stack.getItemMeta().getPersistentDataContainer().has(MARKER);
+    }
+
+    private static String text(String text, String color)
+    {
+        String quoted = text.replace("\\", "\\\\").replace("\"", "\\\"");
+        return "{text:\"" + quoted + "\",color:'" + color + "',italic:false}";
     }
 }

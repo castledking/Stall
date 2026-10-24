@@ -2,6 +2,10 @@
 
 Status: **approved 2026-10-23, scoped to Minecraft 26.3 only for now.** Progress is logged in §15.
 
+**Current implementation update (2026-10-24):** the plugin now supports Spigot as well as Paper. It
+compiles against Spigot API 26.3. Item persistence uses a small native-codec bridge to preserve the
+shared item format; the original Paper-only API assessment below predates that extension. See §15.
+
 Evidence tags used throughout:
 
 - **[V] Verified**: checked directly against local artifacts: `javap` on the Minecraft 26.1/26.2/26.3 jars in the
@@ -20,7 +24,7 @@ Evidence tags used throughout:
 | --- | --- |
 | Architecture | `stall-core` (platform-neutral model, offer rules, trade planner, persistence codec, limits, GUI layouts) plus thin `stall-paper` and `stall-fabric` adapters. The core's boundary is enforced at build time, as `gp3d-core`'s is. |
 | Shop representation | A vanilla **container block** (barrels first, chests later) converted with a **Stall token**. The container is both the anchor and the stock. Ownership is recorded in Stall's registry **and** stamped on the block entity (PDC on Paper, a Fabric data attachment), so the two can be cross-checked. |
-| Initial floor | **Minecraft 26.3, Java 25, Paper 26.3 (`paper-api 26.3.build.193-stable`), Fabric Loader ≥ 0.19.3, Fabric API ≥ 0.160.7+26.3.** |
+| Initial floor | **Minecraft 26.3, Java 25, Spigot/Paper 26.3 (`spigot-api 26.3-R0.1-SNAPSHOT`), Fabric Loader ≥ 0.19.3, Fabric API ≥ 0.160.7+26.3.** |
 | Widening | **Deferred: 26.3 only for now.** 26.1.2 – 26.3.x stays feasible (every API is verified present), behind GP3D-style linkage and boot checks. |
 | Not recommended | 1.21.x. It would need a second remapped Fabric adapter on Java 21 for no gameplay gain. |
 | Biggest risks | (1) Server-side GUIs on Fabric with vanilla clients. (2) Event ordering against claim plugins. (3) Theft vectors around containers. (4) Item identity and serialization parity between platforms. |
@@ -1006,3 +1010,29 @@ sanity limit.
 
 - The rest of milestone 3: explosion protection, and reconciliation for barrels removed without a player
   breaking them.
+
+
+### 2026-10-24: Spigot support
+
+- One `Stall-Paper-<version>.jar` now runs on Spigot, Paper and Purpur 26.3. The module and artifact
+  names stay unchanged for existing downloads and release automation.
+- The plugin compiles against `spigot-api:26.3-R0.1-SNAPSHOT` instead of Paper API. Commands use
+  `plugin.yml`, `CommandExecutor` and `TabCompleter`. Text, inventory, world lookup, marker snapshots,
+  loot-table checks and the tick clock use the common Bukkit API. No client changes or new runtime
+  dependencies are required.
+- **Native-code exception:** Spigot lacks Paper's binary item serialization API. `PaperItemCodec` binds
+  the unobfuscated 26.3 vanilla item codec, registry operations, NBT compression and data fixer through
+  reflection, with a small CraftItemStack conversion bridge. It binds before loading shops and fails
+  enable if the server is incompatible. The saved schema and item bytes remain compatible with Fabric
+  and Paper, including legacy upgrades and exact metadata matching. This must be verified again when
+  adding a Minecraft version.
+- Differential server testing caught Spigot's legacy text setters adding explicit false formatting
+  flags that Paper omits. Tokens now use the same component input on both servers, and match Fabric's
+  token components exactly. The real Spigot fixtures are retained in the Fabric regression tests.
+- **Verified on real servers:** Spigot 26.3 built with official BuildTools (Spigot `bed90fca`, Bukkit
+  `29025a7e`, CraftBukkit `c4db4c38`) and Paper 26.3 build 193. Both enable the same plugin and pass the
+  optional server checks: item fidelity/upgrades, cross-server item and token parity, commands,
+  menu rendering/click cancellation, two-for-two trades, repeated/failed purchases, markers,
+  hopper input/extraction and break protection. These checks simulate player calls against real
+  Bukkit inventories, so vanilla-client packet behavior still needs the retest in `TESTING.md`.
+- Release metadata and store pages now include Spigot. Folia remains unsupported.

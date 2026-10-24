@@ -1,8 +1,7 @@
 package codes.castled.stall.paper;
 
 import codes.castled.stall.shop.Shop;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
+import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.block.Barrel;
@@ -56,15 +55,15 @@ final class ShopListener implements Listener
             return;
         }
         Optional<Shop<ItemStack>> shop = shops.shopAt(block);
-        if (shop.isEmpty() || !(block.getState(false) instanceof Barrel))
+        if (shop.isEmpty() || !(block.getState() instanceof Barrel))
         {
             return;
         }
         boolean previewing = shops.isPreviewing(player.getUniqueId());
         boolean owner = shop.get().isOwner(player.getUniqueId()) && !previewing;
         boolean manager = owner || (!previewing && player.hasPermission("stall.admin"));
-        boolean emptyHanded = player.getInventory().getItemInMainHand().isEmpty()
-                && player.getInventory().getItemInOffHand().isEmpty();
+        boolean emptyHanded = BukkitItems.isEmpty(player.getInventory().getItemInMainHand())
+                && BukkitItems.isEmpty(player.getInventory().getItemInOffHand());
         if (!PaperMarkers.carries(block, shop.get()))
         {
             // A paused shop stays shut to buyers, which keeps its stock safe. Its owner's clicks go on to
@@ -72,8 +71,8 @@ final class ShopListener implements Listener
             if (!manager)
             {
                 event.setCancelled(true);
-                player.sendMessage(Component.text("This shop is paused until its owner opens it again.",
-                        NamedTextColor.YELLOW));
+                player.sendMessage(BukkitItems.text("This shop is paused until its owner opens it again.",
+                        ChatColor.YELLOW));
             }
             return;
         }
@@ -102,7 +101,7 @@ final class ShopListener implements Listener
         }
         else
         {
-            player.sendMessage(Component.text("You don't have permission to use shops.", NamedTextColor.RED));
+            player.sendMessage(BukkitItems.text("You don't have permission to use shops.", ChatColor.RED));
         }
     }
 
@@ -121,7 +120,7 @@ final class ShopListener implements Listener
         }
         Block block = event.getClickedBlock();
         Player player = event.getPlayer();
-        if (block == null || player.getGameMode() == GameMode.SPECTATOR || !(block.getState(false) instanceof Barrel barrel))
+        if (block == null || player.getGameMode() == GameMode.SPECTATOR || !(block.getState() instanceof Barrel barrel))
         {
             return;
         }
@@ -129,8 +128,8 @@ final class ShopListener implements Listener
         if (existing.isPresent())
         {
             boolean manager = existing.get().isOwner(player.getUniqueId()) || player.hasPermission("stall.admin");
-            boolean emptyHanded = player.getInventory().getItemInMainHand().isEmpty()
-                    && player.getInventory().getItemInOffHand().isEmpty();
+            boolean emptyHanded = BukkitItems.isEmpty(player.getInventory().getItemInMainHand())
+                    && BukkitItems.isEmpty(player.getInventory().getItemInOffHand());
             if (manager && player.isSneaking() && emptyHanded && !PaperMarkers.carries(block, existing.get())
                     && !shops.isPreviewing(player.getUniqueId()))
             {
@@ -167,7 +166,7 @@ final class ShopListener implements Listener
     @EventHandler(priority = EventPriority.LOWEST)
     void onClick(InventoryClickEvent event)
     {
-        if (event.getView().getTopInventory().getHolder(false) instanceof StallMenu menu)
+        if (event.getView().getTopInventory().getHolder() instanceof StallMenu menu)
         {
             menu.handleClick(event);
         }
@@ -176,7 +175,7 @@ final class ShopListener implements Listener
     @EventHandler(priority = EventPriority.LOWEST)
     void onDrag(InventoryDragEvent event)
     {
-        if (event.getView().getTopInventory().getHolder(false) instanceof StallMenu menu)
+        if (event.getView().getTopInventory().getHolder() instanceof StallMenu menu)
         {
             menu.handleDrag(event);
         }
@@ -185,7 +184,7 @@ final class ShopListener implements Listener
     @EventHandler
     void onClose(InventoryCloseEvent event)
     {
-        if (event.getInventory().getHolder(false) instanceof StallMenu menu)
+        if (event.getInventory().getHolder() instanceof StallMenu menu)
         {
             shops.closed(menu);
         }
@@ -201,7 +200,7 @@ final class ShopListener implements Listener
             return;
         }
         event.setCancelled(true);
-        player.sendMessage(Component.text("This shop belongs to " + shop.get().ownerName() + ".", NamedTextColor.RED));
+        player.sendMessage(BukkitItems.text("This shop belongs to " + shop.get().ownerName() + ".", ChatColor.RED));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -216,8 +215,8 @@ final class ShopListener implements Listener
         int owed = shops.tokensOwed(event.getPlayer().getUniqueId());
         if (owed > 0)
         {
-            event.getPlayer().sendMessage(Component.text((owed == 1 ? "A Stall token is" : owed + " Stall tokens are")
-                    + " waiting for you from removed shops. Use /stall reclaim to collect.", NamedTextColor.YELLOW));
+            event.getPlayer().sendMessage(BukkitItems.text((owed == 1 ? "A Stall token is" : owed + " Stall tokens are")
+                    + " waiting for you from removed shops. Use /stall reclaim to collect.", ChatColor.YELLOW));
         }
     }
 

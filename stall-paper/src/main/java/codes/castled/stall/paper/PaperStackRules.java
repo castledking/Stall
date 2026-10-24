@@ -15,7 +15,7 @@ final class PaperStackRules implements StackRules<ItemStack>
     @Override
     public boolean isEmpty(ItemStack stack)
     {
-        return stack.isEmpty();
+        return BukkitItems.isEmpty(stack);
     }
 
     @Override
@@ -39,6 +39,6 @@ final class PaperStackRules implements StackRules<ItemStack>
     @Override
     public ItemStack withCount(ItemStack stack, int count)
     {
-        return stack.asQuantity(count);
+        return BukkitItems.withCount(stack, count);
     }
 }

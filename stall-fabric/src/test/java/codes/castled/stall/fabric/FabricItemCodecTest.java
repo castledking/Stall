@@ -24,8 +24,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -92,6 +94,36 @@ class FabricItemCodecTest
     {
         ItemStack read = codec.decode(new StoredItem("minecraft:emerald", PAPER_EMERALD));
         assertTrue(ItemStack.isSameItemSameComponents(new ItemStack(Items.EMERALD), read));
+    }
+
+    @Test
+    void readsRealSpigotItemsAndMatchesItsTokens() throws IOException, ItemDecodeException
+    {
+        Properties fixtures = new Properties();
+        try (var stream = getClass().getResourceAsStream("/spigot-items.properties"))
+        {
+            assertNotNull(stream);
+            fixtures.load(stream);
+        }
+        for (int i = 0; i < 5; i++)
+        {
+            ItemStack item = codec.decode(new StoredItem(fixtures.getProperty(i + ".id"), fixtures.getProperty(i + ".nbt")));
+            assertEquals(1, item.getCount());
+            assertTrue(ItemStack.isSameItemSameComponents(item, codec.decode(codec.encode(item))));
+        }
+        ItemStack token = codec.decode(new StoredItem("minecraft:paper", fixtures.getProperty("1.nbt")));
+        assertTrue(FabricTokens.isToken(token));
+        assertTrue(ItemStack.isSameItemSameComponents(FabricTokens.create(1), token), "tokens must have identical components on every platform");
+        ItemStack sword = codec.decode(new StoredItem("minecraft:diamond_sword", fixtures.getProperty("2.nbt")));
+        assertEquals(42, sword.getDamageValue());
+        assertEquals("Proof", sword.getHoverName().getString());
+        assertEquals(3, sword.getEnchantments().entrySet().iterator().next().getIntValue());
+        assertNotNull(sword.get(DataComponents.CUSTOM_DATA));
+        ItemStack potion = codec.decode(new StoredItem("minecraft:potion", fixtures.getProperty("3.nbt")));
+        assertNotNull(potion.get(DataComponents.POTION_CONTENTS));
+        ItemStack stone = codec.decode(new StoredItem("minecraft:stone", fixtures.getProperty("4.nbt")));
+        assertEquals(16, stone.getMaxStackSize());
+        assertEquals("Keep this lore", stone.get(DataComponents.LORE).lines().getFirst().getString());
     }
 
     @Test

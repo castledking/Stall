@@ -8,7 +8,6 @@ import codes.castled.stall.shop.Shop;
 import codes.castled.stall.trade.ItemAmount;
 import codes.castled.stall.trade.SlotInventory;
 import codes.castled.stall.trade.TradePlanner;
-import net.kyori.adventure.text.Component;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -33,7 +32,7 @@ final class BuyerMenu extends StallMenu
     BuyerMenu(PaperShops shops, Player viewer, Shop<ItemStack> shop)
     {
         super(shops, viewer, shop, ShopMenuLayout.buyerRows(shop.completeOffers().size()),
-                Component.text(shop.ownerName() + "'s Stall"));
+                BukkitItems.text(shop.ownerName() + "'s Stall"));
         render();
     }
 

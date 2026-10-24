@@ -6,6 +6,10 @@ api-version: '26.3'
 description: Physical player shops. Turn a barrel into a shop, stock it, and trade with other players.
 author: castledking
 website: https://castled.codes
+commands:
+  stall:
+    description: Create and manage player shops.
+    usage: /stall
 permissions:
   stall.use:
     description: Open shops and buy from them.
@@ -20,5 +24,5 @@ permissions:
     description: Own any number of shops.
     default: op
   stall.admin:
-    description: Manage and remove any shop, and use /stall admin and /stall debug.
+    description: Manage and remove any shop, and use /stall admin.
     default: op

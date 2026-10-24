@@ -1,0 +1,5 @@
+name: StallServerTestProbe
+version: '1'
+main: codes.castled.stall.test.ServerTestProbe
+api-version: '26.3'
+depend: [Stall]

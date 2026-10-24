@@ -3,9 +3,7 @@ package codes.castled.stall.paper;
 import codes.castled.stall.offer.OfferItem;
 import codes.castled.stall.offer.OfferStatus;
 import codes.castled.stall.trade.ItemAmount;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
+import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 
@@ -32,22 +30,22 @@ final class MenuItems
     static ItemStack editableOfferItem(OfferItem<ItemStack> item, boolean cost)
     {
         return withAmountLine(item, cost ? "Buyers pay " : "Buyers get ", cost, List.of(
-                line("Click with an item: put it in", NamedTextColor.GRAY),
-                line("Left/right-click: one more/fewer", NamedTextColor.GRAY),
-                line("Shift-click: a stack more/fewer", NamedTextColor.GRAY),
-                line("Q: take it out", NamedTextColor.GRAY)));
+                line("Click with an item: put it in", ChatColor.GRAY),
+                line("Left/right-click: one more/fewer", ChatColor.GRAY),
+                line("Shift-click: a stack more/fewer", ChatColor.GRAY),
+                line("Q: take it out", ChatColor.GRAY)));
     }
 
-    private static ItemStack withAmountLine(OfferItem<ItemStack> item, String prefix, boolean cost, List<Component> extra)
+    private static ItemStack withAmountLine(OfferItem<ItemStack> item, String prefix, boolean cost, List<String> extra)
     {
-        ItemStack display = item.item().asQuantity(Math.clamp(item.amount(), 1, item.item().getMaxStackSize()));
-        display.editMeta(meta ->
+        ItemStack display = BukkitItems.withCount(item.item(), Math.clamp(item.amount(), 1, item.item().getMaxStackSize()));
+        BukkitItems.editMeta(display, meta ->
         {
-            List<Component> existing = meta.lore();
-            List<Component> lore = existing == null ? new ArrayList<>() : new ArrayList<>(existing);
-            lore.add(line(prefix + item.amount() + "×", cost ? NamedTextColor.GOLD : NamedTextColor.GREEN));
+            List<String> existing = meta.getLore();
+            List<String> lore = existing == null ? new ArrayList<>() : new ArrayList<>(existing);
+            lore.add(line(prefix + item.amount() + "×", cost ? ChatColor.GOLD : ChatColor.GREEN));
             lore.addAll(extra);
-            meta.lore(lore);
+            meta.setLore(lore);
         });
         return display;
     }
@@ -56,18 +54,18 @@ final class MenuItems
     static ItemStack emptyOfferSlot(boolean cost)
     {
         return named(Material.LIGHT_GRAY_STAINED_GLASS_PANE,
-                line(cost ? "Add what buyers pay" : "Add what buyers get", cost ? NamedTextColor.GOLD : NamedTextColor.GREEN),
-                List.of(line("Click with an item to put it here", NamedTextColor.GRAY)));
+                line(cost ? "Add what buyers pay" : "Add what buyers get", cost ? ChatColor.GOLD : ChatColor.GREEN),
+                List.of(line("Click with an item to put it here", ChatColor.GRAY)));
     }
 
     static ItemStack removeButton(boolean armed)
     {
         ItemStack stack = named(Material.BARRIER,
-                line(armed ? "Press Q again to remove" : "Remove offer", NamedTextColor.RED),
-                List.of(line(armed ? "Any other click cancels" : "Press Q, then Q again", NamedTextColor.GRAY)));
+                line(armed ? "Press Q again to remove" : "Remove offer", ChatColor.RED),
+                List.of(line(armed ? "Any other click cancels" : "Press Q, then Q again", ChatColor.GRAY)));
         if (armed)
         {
-            stack.editMeta(meta -> meta.setEnchantmentGlintOverride(true));
+            BukkitItems.editMeta(stack, meta -> meta.setEnchantmentGlintOverride(true));
         }
         return stack;
     }
@@ -77,9 +75,9 @@ final class MenuItems
     {
         if (!complete)
         {
-            return named(Material.GRAY_STAINED_GLASS_PANE, line("Not set up yet", NamedTextColor.GRAY),
-                    List.of(line("Buyers see this offer once it has", NamedTextColor.GRAY),
-                            line("an item on each side.", NamedTextColor.GRAY)));
+            return named(Material.GRAY_STAINED_GLASS_PANE, line("Not set up yet", ChatColor.GRAY),
+                    List.of(line("Buyers see this offer once it has", ChatColor.GRAY),
+                            line("an item on each side.", ChatColor.GRAY)));
         }
         return status(timesInStock == 0 ? OfferStatus.OUT_OF_STOCK : OfferStatus.AVAILABLE, timesInStock, missingStock);
     }
@@ -87,9 +85,9 @@ final class MenuItems
     /** The status pane of the empty row a new offer is put in. */
     static ItemStack newOffer()
     {
-        return named(Material.WHITE_STAINED_GLASS_PANE, line("New offer", NamedTextColor.WHITE),
-                List.of(line("Put what buyers pay on the left", NamedTextColor.GRAY),
-                        line("and what they get on the right.", NamedTextColor.GRAY)));
+        return named(Material.WHITE_STAINED_GLASS_PANE, line("New offer", ChatColor.WHITE),
+                List.of(line("Put what buyers pay on the left", ChatColor.GRAY),
+                        line("and what they get on the right.", ChatColor.GRAY)));
     }
 
     /**
@@ -106,15 +104,15 @@ final class MenuItems
             case SHOP_FULL, INCOMPLETE, UNAVAILABLE -> Material.GRAY_STAINED_GLASS_PANE;
         };
         String stock = timesInStock == 1 ? "1 trade in stock" : timesInStock + " trades in stock";
-        List<Component> lore = new ArrayList<>();
-        lore.add(line(stock, NamedTextColor.GRAY));
+        List<String> lore = new ArrayList<>();
+        lore.add(line(stock, ChatColor.GRAY));
         if (!missing.isEmpty())
         {
             lore.add(line(status == OfferStatus.OUT_OF_STOCK ? "The shop is out of:" : "You still need:",
-                    NamedTextColor.GRAY));
+                    ChatColor.GRAY));
             for (ItemAmount<ItemStack> item : missing)
             {
-                lore.add(line(" " + item.amount() + "× ", NamedTextColor.WHITE).append(item.item().effectiveName()));
+                lore.add(line(" " + item.amount() + "× ", ChatColor.WHITE) + BukkitItems.name(item.item()));
             }
         }
         return named(pane, line(status.label(), color(status)), lore);
@@ -124,37 +122,37 @@ final class MenuItems
     {
         boolean available = status == OfferStatus.AVAILABLE;
         return named(available ? Material.LIME_DYE : Material.GRAY_DYE,
-                available ? line("Buy", NamedTextColor.GREEN) : line(status.label(), color(status)),
-                available ? List.of(line("Click to trade", NamedTextColor.GRAY)) : List.of());
+                available ? line("Buy", ChatColor.GREEN) : line(status.label(), color(status)),
+                available ? List.of(line("Click to trade", ChatColor.GRAY)) : List.of());
     }
 
-    private static ItemStack named(Material material, Component name, List<Component> lore)
+    private static ItemStack named(Material material, String name, List<String> lore)
     {
-        ItemStack stack = ItemStack.of(material);
-        stack.editMeta(meta ->
+        ItemStack stack = new ItemStack(material);
+        BukkitItems.editMeta(stack, meta ->
         {
-            meta.displayName(name);
+            meta.setDisplayName(name);
             if (!lore.isEmpty())
             {
-                meta.lore(lore);
+                meta.setLore(lore);
             }
         });
         return stack;
     }
 
-    private static NamedTextColor color(OfferStatus status)
+    private static ChatColor color(OfferStatus status)
     {
         return switch (status)
         {
-            case AVAILABLE -> NamedTextColor.GREEN;
-            case OUT_OF_STOCK -> NamedTextColor.RED;
-            case CANNOT_AFFORD, INVENTORY_FULL -> NamedTextColor.GOLD;
-            case SHOP_FULL, INCOMPLETE, UNAVAILABLE -> NamedTextColor.GRAY;
+            case AVAILABLE -> ChatColor.GREEN;
+            case OUT_OF_STOCK -> ChatColor.RED;
+            case CANNOT_AFFORD, INVENTORY_FULL -> ChatColor.GOLD;
+            case SHOP_FULL, INCOMPLETE, UNAVAILABLE -> ChatColor.GRAY;
         };
     }
 
-    private static Component line(String text, NamedTextColor color)
+    private static String line(String text, ChatColor color)
     {
-        return Component.text(text, color).decoration(TextDecoration.ITALIC, false);
+        return BukkitItems.text(text, color);
     }
 }

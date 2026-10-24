@@ -16,8 +16,7 @@ import codes.castled.stall.trade.SlotChange;
 import codes.castled.stall.trade.SlotInventory;
 import codes.castled.stall.trade.TradePlan;
 import codes.castled.stall.trade.TradePlanner;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
+import org.bukkit.ChatColor;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.NamespacedKey;
@@ -64,10 +63,24 @@ final class PaperShops
     private final TokenReturns tokenReturns = new TokenReturns();
     private final Set<UUID> buyerPreview = new HashSet<>();
     private ShopPersistence<ItemStack> persistence;
+    private long currentTick;
 
     PaperShops(Plugin plugin)
     {
         this.plugin = plugin;
+    }
+
+    /** A scheduler-driven clock, unaffected by time commands and available on both Spigot and Paper. */
+    void tick()
+    {
+        currentTick++;
+        if (currentTick % 5 == 0) closeInvalidMenus();
+        if (currentTick % 20 == 0) refreshOpenMenus();
+    }
+
+    long currentTick()
+    {
+        return currentTick;
     }
 
     // --- Saving ------------------------------------------------------------------------------------
@@ -120,7 +133,7 @@ final class PaperShops
      */
     private static Path levelDirectory()
     {
-        Path overworld = Bukkit.getWorlds().getFirst().getWorldPath().toAbsolutePath().normalize();
+        Path overworld = Bukkit.getWorlds().getFirst().getWorldFolder().toPath().toAbsolutePath().normalize();
         Path dimension = Path.of("dimensions", "minecraft", "overworld");
         return overworld.endsWith(dimension) ? overworld.getParent().getParent().getParent() : overworld;
     }
@@ -148,7 +161,8 @@ final class PaperShops
     {
         ShopLocation location = shop.location();
         NamespacedKey key = NamespacedKey.fromString(location.world());
-        World world = key == null ? null : Bukkit.getWorld(key);
+        World world = key == null ? null : Bukkit.getWorlds().stream()
+                .filter(loaded -> loaded.getKey().equals(key)).findFirst().orElse(null);
         if (world == null || !world.isChunkLoaded(location.x() >> 4, location.z() >> 4))
         {
             return Optional.empty();
@@ -173,8 +187,8 @@ final class PaperShops
     void reactivate(Player player, Block block, Shop<ItemStack> shop)
     {
         PaperMarkers.stamp(block, shop);
-        player.sendMessage(Component.text("This shop was paused because its barrel lost its Stall marker. It's open "
-                + "again.", NamedTextColor.GREEN));
+        player.sendMessage(BukkitItems.text("This shop was paused because its barrel lost its Stall marker. It's open "
+                + "again.", ChatColor.GREEN));
         Bukkit.getScheduler().runTask(plugin, () ->
         {
             if (player.isOnline() && registry.isCurrent(shop))
@@ -231,13 +245,14 @@ final class PaperShops
     {
         ShopLocation location = shop.location();
         NamespacedKey key = NamespacedKey.fromString(location.world());
-        World world = key == null ? null : Bukkit.getWorld(key);
+        World world = key == null ? null : Bukkit.getWorlds().stream()
+                .filter(loaded -> loaded.getKey().equals(key)).findFirst().orElse(null);
         if (world == null || !world.isChunkLoaded(location.x() >> 4, location.z() >> 4))
         {
             return Optional.empty();
         }
         Block block = world.getBlockAt(location.x(), location.y(), location.z());
-        return block.getState(false) instanceof Barrel barrel ? Optional.of(barrel.getInventory()) : Optional.empty();
+        return block.getState() instanceof Barrel barrel ? Optional.of(barrel.getInventory()) : Optional.empty();
     }
 
     /** Whether {@code player} is using their own shops as a buyer would, for testing. */
@@ -277,21 +292,21 @@ final class PaperShops
     {
         if (!player.hasPermission("stall.create"))
         {
-            player.sendMessage(Component.text("You don't have permission to make shops.", NamedTextColor.RED));
+            player.sendMessage(BukkitItems.text("You don't have permission to make shops.", ChatColor.RED));
             return;
         }
         int limit = shopLimit(player);
         long owned = registry.countOwnedBy(player.getUniqueId());
         if (owned >= limit)
         {
-            player.sendMessage(Component.text(limit == 0
+            player.sendMessage(BukkitItems.text(limit == 0
                     ? "You can't own shops."
-                    : "You already own " + owned + " of your " + limit + " shops. Remove one first.", NamedTextColor.RED));
+                    : "You already own " + owned + " of your " + limit + " shops. Remove one first.", ChatColor.RED));
             return;
         }
-        if (barrel.hasLootTable())
+        if (barrel.getLootTable() != null)
         {
-            player.sendMessage(Component.text("This barrel still holds unopened loot. Open it first.", NamedTextColor.RED));
+            player.sendMessage(BukkitItems.text("This barrel still holds unopened loot. Open it first.", ChatColor.RED));
             return;
         }
 
@@ -306,8 +321,8 @@ final class PaperShops
             token.setAmount(token.getAmount() - 1);
             player.getInventory().setItemInMainHand(token.getAmount() > 0 ? token : null);
         }
-        player.sendMessage(Component.text("This barrel is now your shop. Set up its offers here; sneak and right-click "
-                + "it with an empty hand to come back.", NamedTextColor.GREEN));
+        player.sendMessage(BukkitItems.text("This barrel is now your shop. Set up its offers here; sneak and right-click "
+                + "it with an empty hand to come back.", ChatColor.GREEN));
         // Opening an inventory from the interact event itself is fine, but wait a tick so the click is done.
         Bukkit.getScheduler().runTask(plugin, () ->
         {
@@ -363,7 +378,7 @@ final class PaperShops
         {
             ShopLocation location = shop.location();
             Block block = actor.getWorld().getBlockAt(location.x(), location.y(), location.z());
-            actor.getWorld().dropItemNaturally(block.getLocation().toCenterLocation(), PaperTokens.create(1));
+            actor.getWorld().dropItemNaturally(block.getLocation().add(0.5, 0.5, 0.5), PaperTokens.create(1));
             return TokenReturn.DROPPED;
         }
         Player owner = Bukkit.getPlayer(shop.owner());
@@ -376,8 +391,8 @@ final class PaperShops
         give(owner, PaperTokens.create(1));
         if (!byOwner)
         {
-            owner.sendMessage(Component.text("Your shop at " + shop.location() + " was removed. Its token is back in "
-                    + "your inventory.", NamedTextColor.YELLOW));
+            owner.sendMessage(BukkitItems.text("Your shop at " + shop.location() + " was removed. Its token is back in "
+                    + "your inventory.", ChatColor.YELLOW));
         }
         return TokenReturn.GIVEN;
     }
@@ -445,7 +460,7 @@ final class PaperShops
             return false;
         }
         Block block = player.getWorld().getBlockAt(location.x(), location.y(), location.z());
-        return player.getEyeLocation().distanceSquared(block.getLocation().toCenterLocation()) <= MAX_DISTANCE_SQUARED;
+        return player.getEyeLocation().distanceSquared(block.getLocation().add(0.5, 0.5, 0.5)) <= MAX_DISTANCE_SQUARED;
     }
 
     /**
@@ -527,7 +542,7 @@ final class PaperShops
         open(player, menu instanceof OwnerMenu
                 ? new OwnerMenu(this, player, menu.shop())
                 : new BuyerMenu(this, player, menu.shop()));
-        if (!cursor.isEmpty())
+        if (!BukkitItems.isEmpty(cursor))
         {
             player.setItemOnCursor(cursor);
         }
@@ -549,7 +564,7 @@ final class PaperShops
     void buy(BuyerMenu menu, UUID offerId)
     {
         Player player = menu.viewer();
-        if (!throttle.tryAcquire(player.getUniqueId(), Bukkit.getCurrentTick()))
+        if (!throttle.tryAcquire(player.getUniqueId(), currentTick()))
         {
             return;
         }
@@ -562,7 +577,7 @@ final class PaperShops
         if (menu.revision() != shop.revision())
         {
             menu.render();
-            player.sendMessage(Component.text("This shop just changed. Check its offers again.", NamedTextColor.YELLOW));
+            player.sendMessage(BukkitItems.text("This shop just changed. Check its offers again.", ChatColor.YELLOW));
             return;
         }
         Optional<Offer<ItemStack>> offer = shop.offer(offerId);
@@ -576,12 +591,12 @@ final class PaperShops
         switch (plan)
         {
             case TradePlan.Failure<ItemStack> failure ->
-                    player.sendMessage(Component.text(failure.reason().message(), NamedTextColor.RED));
+                    player.sendMessage(BukkitItems.text(failure.reason().message(), ChatColor.RED));
             case TradePlan.Success<ItemStack> success ->
             {
                 commit(player.getInventory(), success.buyerChanges());
                 commit(barrel.get(), success.stockChanges());
-                player.sendMessage(Component.text("Trade complete.", NamedTextColor.GREEN));
+                player.sendMessage(BukkitItems.text("Trade complete.", ChatColor.GREEN));
             }
         }
         refresh(shop);
