@@ -1,0 +1,24 @@
+name: Stall
+version: "${version}"
+main: codes.castled.stall.paper.StallPlugin
+# The oldest server Stall supports. Stall targets Minecraft 26.3 only for now.
+api-version: '26.3'
+description: Physical player shops. Turn a barrel into a shop, stock it, and trade with other players.
+author: castledking
+website: https://castled.codes
+permissions:
+  stall.use:
+    description: Open shops and buy from them.
+    default: true
+  stall.create:
+    description: Turn a container into a shop.
+    default: true
+  stall.token:
+    description: Use /stall token.
+    default: true
+  stall.limit.unlimited:
+    description: Own any number of shops.
+    default: op
+  stall.admin:
+    description: Manage and remove any shop, and use /stall admin and /stall debug.
+    default: op

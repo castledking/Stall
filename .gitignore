@@ -1,0 +1,21 @@
+# Build output
+build/
+.gradle/
+*.class
+out/
+bin/
+
+# Fabric dev server, and the log the Fabric unit tests write when they bootstrap Minecraft
+stall-fabric/run/
+logs/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# Wiki (separate clone of Stall.wiki.git)
+wiki/
