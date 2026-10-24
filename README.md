@@ -6,6 +6,7 @@
   <a href="https://discord.com/invite/pCKdCX6nYr"><img alt="Discord" src="https://img.shields.io/badge/Discord-Community-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
   <a href="https://github.com/castledking/Stall"><img alt="GitHub Repository" src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github"></a>
   <a href="https://github.com/castledking/Stall/issues"><img alt="GitHub Issues" src="https://img.shields.io/badge/GitHub-Issues-181717?style=for-the-badge&logo=github"></a>
+  <a href="https://github.com/castledking/Stall/wiki"><img alt="GitHub Wiki" src="https://img.shields.io/badge/GitHub-Wiki-181717?style=for-the-badge&logo=github"></a>
   <a href="https://castled.codes"><img alt="CASTLED CODEX" src="https://castled.codes/assets/logo-banner.png" width="140" height="35"></a>
 </p>
 
@@ -13,7 +14,7 @@
 
 Stall shops are real blocks with real stock. There is no virtual storage, no client mod and no resource pack: what a shop sells is whatever sits in its container, and players on an unmodified client can use every part of it.
 
-> **Status:** Stall is in early development and nothing has been released yet. This page describes how Stall is planned to work, and details may change before the first release. See [docs/PLAN.md](docs/PLAN.md) for the research and implementation plan.
+> **Status:** Stall is new. Barrels are the only shop container so far, and shops aren't protected from explosions yet; both are coming in later versions. See [docs/PLAN.md](docs/PLAN.md) for the plan and progress.
 
 ---
 
@@ -37,7 +38,7 @@ Barrels are the first supported container. Single and double chests are planned 
 - **Exact item matching:** enchantments, names, durability, potion types and other item data all count, so a renamed or damaged item is never mistaken for the item an offer asks for.
 - **Shop limits by permission:** set how many shops each rank can own using permission tiers such as `stall.limit.5`. Works with LuckPerms on both Paper and Fabric.
 - **Claim friendly:** you can only turn a container into a shop where you could open it anyway, so GriefPrevention and other protection plugins and mods decide where shops can go. Buyers can still use shops inside claims they aren't trusted in.
-- **Protected stock:** shops can't be broken by other players, blown up, or drained with hoppers.
+- **Protected stock:** other players can't break a shop or open its container, and hoppers can't drain it, though they can still fill it. Explosions aren't blocked yet, so keep shops away from creepers and TNT for now.
 - **Vanilla clients:** no client mod or resource pack is needed on either platform.
 - **One data format:** Paper and Fabric servers read and write the same shop data.
 
@@ -50,7 +51,7 @@ Stall targets Minecraft 26.3 only for now.
 | Paper | 26.3 | 25 | Paper 26.3 |
 | Fabric (dedicated server) | 26.3 | 25 | Fabric Loader 0.19.3 or newer, Fabric API for 26.3 |
 
-LuckPerms is optional on both platforms. Without a permission plugin or mod, Stall falls back to its configured defaults and operator status.
+LuckPerms is optional on both platforms. Without a permission plugin or mod, Stall uses the defaults in the [permissions](#permissions) table: everyone can trade and own 3 shops, and operators can manage every shop.
 
 ## Commands
 
@@ -110,4 +111,4 @@ Building needs Java 25.
 | `stall-paper` | The Paper plugin. | `stall-paper/build/libs/Stall-Paper-<version>.jar` |
 | `stall-fabric` | The Fabric mod. Install it with Fabric API. | `stall-fabric/build/libs/Stall-Fabric-<version>.jar` |
 
-The current builds are an early prototype of the buyer menu and trades. See [docs/TESTING.md](docs/TESTING.md) to try it.
+[docs/TESTING.md](docs/TESTING.md) is the checklist for testing a build in game.
