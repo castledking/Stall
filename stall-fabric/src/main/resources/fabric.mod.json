@@ -3,7 +3,7 @@
   "id": "stall",
   "version": "${version}",
   "name": "Stall",
-  "description": "Physical player shops. Turn a barrel into a shop, stock it, and trade with other players. Runs on the server; vanilla clients need nothing installed.",
+  "description": "Physical player shops. Turn a barrel or chest into a shop, stock it, and trade with other players. Runs on the server; vanilla clients need nothing installed.",
   "authors": [
     "castledking"
   ],

@@ -374,8 +374,8 @@ class TradePlannerTest
     {
         FakeItem[] stock = slots(BARREL_SLOTS);
         stock[0] = FakeItem.of("stone", 64);
-        Offer<FakeItem> noCost = new Offer<>(UUID.randomUUID(), OfferSlots.empty(),
-                OfferSlots.of(List.of(item("stone", 1))));
+        Offer<FakeItem> noCost = new Offer<>(UUID.randomUUID(), OfferSlots.empty(true),
+                OfferSlots.rewards(List.of(item("stone", 1))));
 
         assertFailure(TradeFailure.INCOMPLETE, planner.plan(noCost, 1, player(slots(PLAYER_SLOTS)), barrel(stock)));
         assertEquals(OfferStatus.INCOMPLETE, planner.status(noCost, player(slots(PLAYER_SLOTS)), barrel(stock)));
@@ -389,8 +389,8 @@ class TradePlannerTest
         FakeItem[] stock = slots(BARREL_SLOTS);
         stock[0] = FakeItem.of("bread", 3);
         Offer<FakeItem> offer = new Offer<>(UUID.randomUUID(),
-                OfferSlots.<FakeItem>empty().with(1, item("emerald", 1)),
-                OfferSlots.<FakeItem>empty().with(1, item("bread", 3)));
+                OfferSlots.<FakeItem>empty(true).with(1, item("emerald", 1)),
+                OfferSlots.<FakeItem>empty(false).with(1, item("bread", 3)));
 
         apply(success(planner.plan(offer, 1, player(buyer), barrel(stock))), buyer, stock);
         assertEquals(3, total(buyer, "bread"));
@@ -478,7 +478,7 @@ class TradePlannerTest
 
     private static Offer<FakeItem> offer(List<OfferItem<FakeItem>> costs, List<OfferItem<FakeItem>> rewards)
     {
-        return new Offer<>(UUID.randomUUID(), OfferSlots.of(costs), OfferSlots.of(rewards));
+        return new Offer<>(UUID.randomUUID(), OfferSlots.costs(costs), OfferSlots.rewards(rewards));
     }
 
     private static OfferItem<FakeItem> item(String id, int amount)
@@ -574,13 +574,13 @@ class TradePlannerTest
 
     private static Offer<FakeItem> randomOffer(Random random, String[] ids)
     {
-        return offer(randomSide(random, ids), randomSide(random, ids));
+        return offer(randomSide(random, ids, OfferSlots.COST_SLOTS), randomSide(random, ids, OfferSlots.REWARD_SLOTS));
     }
 
-    private static List<OfferItem<FakeItem>> randomSide(Random random, String[] ids)
+    private static List<OfferItem<FakeItem>> randomSide(Random random, String[] ids, int slots)
     {
         List<OfferItem<FakeItem>> side = new ArrayList<>();
-        int count = 1 + random.nextInt(OfferSlots.SIZE);
+        int count = 1 + random.nextInt(slots);
         for (int i = 0; i < count; i++)
         {
             side.add(item(ids[random.nextInt(ids.length)], 1 + random.nextInt(24)));

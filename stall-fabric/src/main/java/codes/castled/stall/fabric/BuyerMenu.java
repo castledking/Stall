@@ -14,7 +14,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.entity.BarrelBlockEntity;
+import net.minecraft.world.Container;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -61,7 +61,7 @@ final class BuyerMenu extends StallMenu
         }
     }
 
-    /** Draws every complete offer against the barrel's and the viewer's current contents. */
+    /** Draws every complete offer against the shop's stock and the viewer's current contents. */
     @Override
     void render()
     {
@@ -69,9 +69,9 @@ final class BuyerMenu extends StallMenu
         rowOffers.clear();
 
         TradePlanner<ItemStack> planner = shops.planner();
-        Optional<BarrelBlockEntity> barrel = shops.stock(viewer.level(), shop);
+        Optional<Container> stockContainer = shops.stock(viewer.level(), shop);
         SlotInventory<ItemStack> buyer = FabricShops.buyerSlots(viewer);
-        SlotInventory<ItemStack> stock = barrel.map(FabricShops::stockSlots).orElse(null);
+        SlotInventory<ItemStack> stock = stockContainer.map(FabricShops::stockSlots).orElse(null);
 
         List<Offer<ItemStack>> offers = shop.completeOffers();
         for (int row = 0; row < Math.min(offers.size(), rows); row++)

@@ -31,6 +31,9 @@ public final class Shop<I>
     private volatile List<Offer<I>> offers = List.of();
     private volatile List<String> preservedOffers = List.of();
     private volatile int revision;
+    /** Every shop saved before chests is a barrel. */
+    private volatile String container = ShopContainers.BARREL;
+    private volatile boolean largeStock;
 
     /**
      * @param tokenConsumed whether making the shop used up a token, which is then handed back when the
@@ -101,6 +104,34 @@ public final class Shop<I>
     public List<String> preservedOffers()
     {
         return preservedOffers;
+    }
+
+    /**
+     * The block holding the shop's stock, such as {@code minecraft:barrel} or {@code minecraft:chest}. It
+     * is the block at the shop's location; a double chest's other half is found from that block.
+     */
+    public String container()
+    {
+        return container;
+    }
+
+    public void setContainer(String container)
+    {
+        this.container = Objects.requireNonNull(container, "container");
+    }
+
+    /**
+     * Whether the shop's barrel holds a second 27 slots of stock, saved with the barrel itself. Once
+     * on, it stays on, so items in those slots are never stranded when the owner's permissions change.
+     */
+    public boolean largeStock()
+    {
+        return largeStock;
+    }
+
+    public void enableLargeStock()
+    {
+        largeStock = true;
     }
 
     public boolean isOwner(UUID player)

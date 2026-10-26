@@ -2,16 +2,17 @@ package codes.castled.stall.paper;
 
 import codes.castled.stall.shop.Shop;
 import org.bukkit.NamespacedKey;
-import org.bukkit.block.Barrel;
+import org.bukkit.block.Container;
 import org.bukkit.block.Block;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.Objects;
 
 /**
- * The marker on a shop's barrel: the shop's id, saved with the barrel in its persistent data. A shop only
- * trades while the barrel at its location carries its marker, so a barrel that replaced the shop's own,
- * or one the world rolled back, is never mistaken for the shop.
+ * The marker on a shop's container: the shop's id, saved with the block in its persistent data. A shop
+ * only trades while the container at its location carries its marker, so a container that replaced the
+ * shop's own, or one the world rolled back, is never mistaken for the shop. A double chest carries it on
+ * the half at the shop's location.
  */
 final class PaperMarkers
 {
@@ -21,22 +22,22 @@ final class PaperMarkers
     {
     }
 
-    /** Stamps the marker. Changes a snapshot of the barrel and writes it back, the documented way. */
+    /** Stamps the marker. Changes a snapshot of the container and writes it back, the documented way. */
     static void stamp(Block block, Shop<?> shop)
     {
-        if (block.getState() instanceof Barrel barrel)
+        if (block.getState() instanceof Container container)
         {
-            barrel.getPersistentDataContainer().set(SHOP, PersistentDataType.STRING, shop.id().toString());
-            barrel.update();
+            container.getPersistentDataContainer().set(SHOP, PersistentDataType.STRING, shop.id().toString());
+            container.update();
         }
     }
 
     static void clear(Block block)
     {
-        if (block.getState() instanceof Barrel barrel)
+        if (block.getState() instanceof Container container)
         {
-            barrel.getPersistentDataContainer().remove(SHOP);
-            barrel.update();
+            container.getPersistentDataContainer().remove(SHOP);
+            container.update();
         }
     }
 
@@ -47,7 +48,7 @@ final class PaperMarkers
 
     static String marker(Block block)
     {
-        return block.getState() instanceof Barrel barrel
-                ? barrel.getPersistentDataContainer().get(SHOP, PersistentDataType.STRING) : null;
+        return block.getState() instanceof Container container
+                ? container.getPersistentDataContainer().get(SHOP, PersistentDataType.STRING) : null;
     }
 }

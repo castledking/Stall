@@ -151,6 +151,30 @@ class OfferEditorTest
     }
 
     @Test
+    void theRewardSideHoldsThreeStacks()
+    {
+        editor.click(shop, 0, REWARD, 0, MenuClick.LEFT, Item.of("bread", 64));
+        editor.click(shop, 0, REWARD, 0, MenuClick.SHIFT_LEFT, null);
+        editor.click(shop, 0, REWARD, 0, MenuClick.SHIFT_LEFT, null);
+
+        assertEquals(64, reward(0, 0).amount());
+        assertEquals(64, reward(0, 1).amount());
+        assertEquals(64, reward(0, 2).amount());
+        assertFalse(editor.click(shop, 0, REWARD, 0, MenuClick.SHIFT_LEFT, null), "all three slots are full");
+    }
+
+    @Test
+    void theThirdRewardSlotTakesItsOwnItem()
+    {
+        editor.click(shop, 0, COST, 0, MenuClick.LEFT, Item.of("emerald", 1));
+        assertTrue(editor.click(shop, 0, REWARD, 2, MenuClick.LEFT, Item.of("coal", 4)));
+
+        assertNull(reward(0, 0));
+        assertEquals(new OfferItem<>(Item.of("coal", 1), 4), reward(0, 2));
+        assertFalse(editor.click(shop, 0, COST, 2, MenuClick.LEFT, Item.of("coal", 4)), "the cost side has two slots");
+    }
+
+    @Test
     void theSecondSlotCarriesOnInTheFirst()
     {
         editor.click(shop, 0, REWARD, 1, MenuClick.LEFT, Item.of("bread", 64));
@@ -179,7 +203,9 @@ class OfferEditorTest
         editor.click(shop, 0, REWARD, 0, MenuClick.LEFT, null);
 
         assertEquals(1, reward(0, 0).amount());
-        assertEquals(1, reward(0, 1).amount(), "a second sword goes in the other slot");
+        assertEquals(1, reward(0, 1).amount(), "a second sword goes in the next slot");
+        assertTrue(editor.click(shop, 0, REWARD, 0, MenuClick.SHIFT_LEFT, null));
+        assertEquals(1, reward(0, 2).amount(), "and a third in the last");
         assertFalse(editor.click(shop, 0, REWARD, 0, MenuClick.SHIFT_LEFT, null));
 
         Item pearl = new Item("ender_pearl", 16, 16);

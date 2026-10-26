@@ -3,6 +3,7 @@ package codes.castled.stall.fabric;
 import codes.castled.stall.offer.Offer;
 import codes.castled.stall.offer.OfferItem;
 import codes.castled.stall.shop.Shop;
+import codes.castled.stall.shop.ShopContainers;
 import codes.castled.stall.shop.Tokens;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -77,7 +78,7 @@ final class StallCommands
                 "/stall remove - remove the shop you're looking at",
                 "/stall reclaim - collect tokens from shops removed while you were away",
                 "/stall preview - see your own shops as a buyer does");
-        source.sendSuccess(() -> Component.literal("Stall: use a token on a barrel to make it your shop. Sneak and "
+        source.sendSuccess(() -> Component.literal("Stall: use a token on a barrel or chest to make it your shop. Sneak and "
                 + "right-click your shop with an empty hand to set up offers.").withStyle(ChatFormatting.GOLD), false);
         for (String line : lines)
         {
@@ -91,7 +92,7 @@ final class StallCommands
         ServerPlayer player = source.getPlayerOrException();
         FabricShops.giveTokens(player, amount);
         source.sendSuccess(() -> success((amount == 1 ? "Here's a Stall token." : "Here are " + amount + " Stall tokens.")
-                + " Use one on a barrel to make it your shop."), false);
+                + " Use one on a barrel or chest to make it your shop."), false);
         return amount;
     }
 
@@ -103,7 +104,7 @@ final class StallCommands
         if (owned.isEmpty())
         {
             source.sendSuccess(() -> Component.literal("You don't own any shops (limit: " + limit + "). Use a Stall token "
-                    + "on a barrel to make one."), false);
+                    + "on a barrel or chest to make one."), false);
             return 0;
         }
         source.sendSuccess(() -> Component.literal("Your shops (" + owned.size() + ", limit: " + limit + "):")
@@ -136,7 +137,8 @@ final class StallCommands
             return 0;
         }
         Shop<ItemStack> shop = target.get();
-        source.sendSuccess(() -> Component.literal(shop.ownerName() + "'s shop at " + shop.location())
+        source.sendSuccess(() -> Component.literal(shop.ownerName() + "'s shop at " + shop.location() + ", a "
+                + (shop.largeStock() ? "large " : "") + ShopContainers.describe(shop.container()))
                 .withStyle(ChatFormatting.GOLD), false);
         if (shop.offers().isEmpty())
         {
@@ -175,7 +177,13 @@ final class StallCommands
             source.sendFailure(Component.literal("This shop belongs to " + shop.ownerName() + "."));
             return 0;
         }
-        FabricShops.TokenReturn token = shops.remove(source.getServer(), shop, player, false);
+        if (!shops.extraStockEmpty(player.level(), shop))
+        {
+            source.sendFailure(Component.literal("This large barrel still holds stock in its extra slots, which an "
+                    + "ordinary barrel can't keep. Empty them first, or break the barrel."));
+            return 0;
+        }
+        FabricShops.TokenReturn token = shops.remove(source.getServer(), shop, player, null);
         String message = own ? "Removed your shop." : "Removed " + shop.ownerName() + "'s shop.";
         message += switch (token)
         {
@@ -222,7 +230,7 @@ final class StallCommands
         }
         FabricShops.giveTokens(target, amount);
         String tokens = amount == 1 ? "a Stall token" : amount + " Stall tokens";
-        target.sendSystemMessage(success("You received " + tokens + ". Use one on a barrel to make it your shop."));
+        target.sendSystemMessage(success("You received " + tokens + ". Use one on a barrel or chest to make it your shop."));
         source.sendSuccess(() -> success("Gave " + target.getPlainTextName() + " " + tokens + "."), true);
         return amount;
     }

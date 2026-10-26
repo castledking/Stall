@@ -8,9 +8,10 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
 /**
- * The marker on a shop's barrel: the shop's id, saved with the barrel as a Fabric data attachment. A shop
- * only trades while the barrel at its location carries its marker, so a barrel that replaced the shop's
- * own, or one the world rolled back, is never mistaken for the shop.
+ * The marker on a shop's container: the shop's id, saved with the block as a Fabric data attachment. A
+ * shop only trades while the container at its location carries its marker, so a container that replaced
+ * the shop's own, or one the world rolled back, is never mistaken for the shop. A double chest carries it
+ * on the half at the shop's location.
  */
 final class ShopMarkers
 {
@@ -18,17 +19,22 @@ final class ShopMarkers
             Identifier.fromNamespaceAndPath(StallFabric.MOD_ID, "shop"),
             builder -> builder.persistent(Codec.STRING));
 
+    /** A large barrel's extra stock, in {@link codes.castled.stall.store.StockCodec}'s text format. */
+    static final AttachmentType<String> STOCK = AttachmentRegistry.create(
+            Identifier.fromNamespaceAndPath(StallFabric.MOD_ID, "stock"),
+            builder -> builder.persistent(Codec.STRING));
+
     private ShopMarkers()
     {
     }
 
     /**
-     * Registers the marker. Must run from the mod initializer: chunks load before the server has started,
-     * and a barrel read before the marker's type exists would lose its marker.
+     * Registers the attachments. Must run from the mod initializer: chunks load before the server has
+     * started, and a container read before an attachment's type exists would lose it.
      */
     static void register()
     {
-        // Loading this class registers SHOP.
+        // Loading this class registers SHOP and STOCK.
     }
 
     static void stamp(BlockEntity barrel, Shop<?> shop)

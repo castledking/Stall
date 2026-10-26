@@ -22,10 +22,10 @@ import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
-import org.bukkit.block.Barrel;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.permissions.Permissible;
@@ -33,6 +33,7 @@ import org.bukkit.plugin.Plugin;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.List;
@@ -64,7 +65,10 @@ final class PaperShops
     private final ShopViewers<StallMenu> viewers = new ShopViewers<>();
     private final TokenReturns tokenReturns = new TokenReturns();
     private final Set<UUID> buyerPreview = ConcurrentHashMap.newKeySet();
+    /** Large barrels' 54-slot stock views, by viewer. */
+    private final Map<UUID, StockView> stockViews = new ConcurrentHashMap<>();
     private ShopPersistence<ItemStack> persistence;
+    private PaperExtraStock extraStock;
     private final AtomicLong currentTick = new AtomicLong();
     private final SchedulerFacade scheduler;
 
@@ -116,9 +120,16 @@ final class PaperShops
         Optional<Block> anchor = block(shop);
         if (anchor.isEmpty()) return; // Unloaded or foreign region: leave the record alone.
         Block block = anchor.get();
-        ShopAnchor.Status status = ShopAnchor.inspect(true, block.getState() instanceof Barrel,
+        ShopAnchor.Status status = ShopAnchor.inspect(true, PaperContainers.isSupported(block),
                 PaperMarkers.marker(block), shop.id());
+        if (status == ShopAnchor.Status.PAUSED && extraStock != null)
+        {
+            // A replacement barrel doesn't hold the old one's extra slots, just as it doesn't hold its items.
+            extraStock.forget(shop.id());
+        }
         if (status != ShopAnchor.Status.ORPHANED || !registry.remove(shop)) return;
+        if (extraStock != null) extraStock.forget(shop.id());
+        closeStockViews(shop);
         synchronized (tokenReturns)
         {
             tokenReturns.refund(shop);
@@ -152,7 +163,14 @@ final class PaperShops
     void startStorage()
     {
         Path directory = levelDirectory().resolve("stall");
-        persistence = new ShopPersistence<>(directory, new PaperItemCodec(), new StoreLog()
+        PaperItemCodec items = new PaperItemCodec();
+        extraStock = new PaperExtraStock(plugin, items);
+        if (!CombinedInventories.available())
+        {
+            plugin.getLogger().log(Level.WARNING, "Large barrels are unavailable on this server: their owners can't "
+                    + "open the extra slots. Trades still use them.", CombinedInventories.failure());
+        }
+        persistence = new ShopPersistence<>(directory, items, new StoreLog()
         {
             @Override
             public void info(String message)
@@ -179,6 +197,7 @@ final class PaperShops
     /** Writes every change still waiting. Runs on disable. */
     void stopStorage()
     {
+        flushAllExtraStock();
         if (persistence != null)
         {
             persistence.close();
@@ -245,12 +264,18 @@ final class PaperShops
      * back, a switch between Paper and Fabric, or the barrel being replaced. Protection plugins have
      * already allowed the owner's click by the time this runs.
      */
-    void reactivate(Player player, Block block, Shop<ItemStack> shop)
+    void reactivate(Player player, Shop<ItemStack> shop)
     {
         if (!canAccess(player, shop)) return;
+        Optional<Block> anchor = block(shop).filter(PaperContainers::isSupported);
+        if (anchor.isEmpty()) return;
+        Block block = anchor.get();
+        if (extraStock != null) extraStock.forget(shop.id());
         PaperMarkers.stamp(block, shop);
-        player.sendMessage(BukkitItems.text("This shop was paused because its barrel lost its Stall marker. It's open "
-                + "again.", ChatColor.GREEN));
+        shop.setContainer(PaperContainers.id(block));
+        save(shop);
+        player.sendMessage(BukkitItems.text("This shop was paused because its " + PaperContainers.describe(block)
+                + " lost its Stall marker. It's open again.", ChatColor.GREEN));
         scheduler.laterEntity(player, () ->
         {
             if (player.isOnline() && registry.isCurrent(shop))
@@ -263,6 +288,11 @@ final class PaperShops
     ShopRegistry<ItemStack> registry()
     {
         return registry;
+    }
+
+    PaperExtraStock extraStock()
+    {
+        return extraStock;
     }
 
     TradePlanner<ItemStack> planner()
@@ -298,25 +328,40 @@ final class PaperShops
         return new ShopLocation(block.getWorld().getKey().toString(), block.getX(), block.getY(), block.getZ());
     }
 
+    /** The shop at {@code block}, which may be either half of a double chest shop. */
     Optional<Shop<ItemStack>> shopAt(Block block)
     {
-        return registry.at(locate(block));
+        Optional<Shop<ItemStack>> shop = registry.at(locate(block));
+        if (shop.isPresent() || !PaperContainers.isSupported(block))
+        {
+            return shop;
+        }
+        return PaperContainers.connected(block).flatMap(half -> registry.at(locate(half)));
     }
 
-    /** The barrel holding a shop's stock, or empty if its chunk is unloaded or the barrel is gone. */
-    Optional<Inventory> stock(Shop<ItemStack> shop)
+    /**
+     * Where a shop's stock is: its container's live inventory, a double chest's covering both halves, and
+     * for a large barrel its extra slots after the barrel's own. Empty if its chunk is unloaded or the
+     * container is gone.
+     */
+    Optional<PaperStock> stock(Shop<ItemStack> shop)
     {
-        ShopLocation location = shop.location();
-        NamespacedKey key = NamespacedKey.fromString(location.world());
-        World world = key == null ? null : Bukkit.getWorlds().stream()
-                .filter(loaded -> loaded.getKey().equals(key)).findFirst().orElse(null);
-        if (world == null || !FoliaSupport.owns(world, location.x() >> 4, location.z() >> 4)
-                || !world.isChunkLoaded(location.x() >> 4, location.z() >> 4))
+        Optional<Block> anchor = block(shop);
+        Optional<Inventory> inventory = anchor.flatMap(PaperContainers::inventory);
+        if (inventory.isEmpty())
         {
             return Optional.empty();
         }
-        Block block = world.getBlockAt(location.x(), location.y(), location.z());
-        return block.getState() instanceof Barrel barrel ? Optional.of(barrel.getInventory()) : Optional.empty();
+        Block block = anchor.get();
+        if (shop.largeStock() && extraStock != null && PaperContainers.isBarrel(block))
+        {
+            Inventory extra = extraStock.inventory(shop, block);
+            if (extra != null)
+            {
+                return Optional.of(new PaperStock(List.of(inventory.get(), extra), true));
+            }
+        }
+        return Optional.of(PaperStock.of(inventory.get()));
     }
 
     /** Whether {@code player} is using their own shops as a buyer would, for testing. */
@@ -349,10 +394,10 @@ final class PaperShops
     // --- Making and removing shops ----------------------------------------------------------------
 
     /**
-     * Turns {@code block}'s barrel into {@code player}'s shop with the token in their main hand, then opens
-     * the owner menu. Protection plugins have already allowed the click by the time this runs.
+     * Turns the container at {@code block} into {@code player}'s shop with the token in their main hand,
+     * then opens the owner menu. Protection plugins have already allowed the click by the time this runs.
      */
-    void create(Player player, Block block, Barrel barrel)
+    void create(Player player, Block block)
     {
         if (!FoliaSupport.owns(player) || !FoliaSupport.owns(block.getWorld(), block.getX() >> 4, block.getZ() >> 4)) return;
         if (!player.hasPermission("stall.create"))
@@ -369,14 +414,22 @@ final class PaperShops
                     : "You already own " + owned + " of your " + limit + " shops. Remove one first.", ChatColor.RED));
             return;
         }
-        if (barrel.getLootTable() != null)
+        String name = PaperContainers.describe(block);
+        if (PaperContainers.inventory(block).isEmpty())
         {
-            player.sendMessage(BukkitItems.text("This barrel still holds unopened loot. Open it first.", ChatColor.RED));
+            player.sendMessage(BukkitItems.text("Both halves of this chest must be available before it can become a shop.", ChatColor.RED));
+            return;
+        }
+        if (PaperContainers.hasUnopenedLoot(block))
+        {
+            player.sendMessage(BukkitItems.text("This " + name + " still holds unopened loot. Open it first.", ChatColor.RED));
             return;
         }
 
         boolean consumed = player.getGameMode() != GameMode.CREATIVE;
         Shop<ItemStack> shop = new Shop<>(UUID.randomUUID(), player.getUniqueId(), player.getName(), locate(block), consumed);
+        shop.setContainer(PaperContainers.id(block));
+        boolean large = grantLargeStock(player, shop, block);
         registry.add(shop);
         PaperMarkers.stamp(block, shop);
         save(shop);
@@ -386,8 +439,8 @@ final class PaperShops
             token.setAmount(token.getAmount() - 1);
             player.getInventory().setItemInMainHand(token.getAmount() > 0 ? token : null);
         }
-        player.sendMessage(BukkitItems.text("This barrel is now your shop. Set up its offers here; sneak and right-click "
-                + "it with an empty hand to come back.", ChatColor.GREEN));
+        player.sendMessage(BukkitItems.text("This " + name + " is now your shop" + (large ? ", with 54 slots of stock" : "")
+                + ". Set up its offers here; sneak and right-click it with an empty hand to come back.", ChatColor.GREEN));
         // Opening an inventory from the interact event itself is fine, but wait a tick so the click is done.
         scheduler.laterEntity(player, () ->
         {
@@ -416,9 +469,9 @@ final class PaperShops
      * owner broke it, otherwise into their inventory, or kept for {@code /stall reclaim} if they're offline.
      *
      * @param actor who removed the shop, or {@code null} if nobody did
-     * @param broken whether the actor broke the barrel, rather than removing the shop with a command
+     * @param broken the block the actor broke, or {@code null} if the shop was removed with a command
      */
-    TokenReturn remove(Shop<ItemStack> shop, Player actor, boolean broken)
+    TokenReturn remove(Shop<ItemStack> shop, Player actor, Block broken)
     {
         if (actor != null && !canAccess(actor, shop)) return TokenReturn.NONE;
         if (!registry.remove(shop)) return TokenReturn.NONE;
@@ -430,21 +483,20 @@ final class PaperShops
         {
             close(menu);
         }
-        // A barrel left standing becomes an ordinary barrel again.
-        if (!broken)
-        {
-            block(shop).filter(block -> PaperMarkers.carries(block, shop)).ifPresent(PaperMarkers::clear);
-        }
+        closeStockViews(shop);
+        if (extraStock != null) extraStock.forget(shop.id());
+        // A container left standing becomes an ordinary one again: after a command, or when one half of a
+        // double chest was broken and the other half carries the marker.
+        block(shop).filter(block -> !block.equals(broken) && PaperMarkers.carries(block, shop))
+                .ifPresent(PaperMarkers::clear);
         if (!shop.tokenConsumed())
         {
             return TokenReturn.NONE;
         }
         boolean byOwner = actor != null && shop.isOwner(actor.getUniqueId());
-        if (broken && byOwner)
+        if (broken != null && byOwner)
         {
-            ShopLocation location = shop.location();
-            Block block = actor.getWorld().getBlockAt(location.x(), location.y(), location.z());
-            actor.getWorld().dropItemNaturally(block.getLocation().add(0.5, 0.5, 0.5), PaperTokens.create(1));
+            broken.getWorld().dropItemNaturally(broken.getLocation().add(0.5, 0.5, 0.5), PaperTokens.create(1));
             return TokenReturn.DROPPED;
         }
         Player owner = Bukkit.getPlayer(shop.owner());
@@ -581,13 +633,17 @@ final class PaperShops
         }
     }
 
-    /** Closes every shop menu, so none outlives the plugin that cancels its clicks. */
+    /**
+     * Closes every shop menu, so none outlives the plugin that cancels its clicks, and every large barrel
+     * view, so none outlives the plugin that saves its extra slots.
+     */
     void closeAll()
     {
         for (StallMenu menu : viewers.all())
         {
             close(menu);
         }
+        stockViews.values().stream().map(StockView::shop).distinct().forEach(this::closeStockViews);
     }
 
     /** Redraws every menu open on {@code shop}, after its stock or offers changed. */
@@ -682,13 +738,13 @@ final class PaperShops
             return;
         }
         Optional<Offer<ItemStack>> offer = shop.offer(offerId);
-        Optional<Inventory> barrel = stock(shop);
-        if (offer.isEmpty() || barrel.isEmpty())
+        Optional<PaperStock> stock = stock(shop);
+        if (offer.isEmpty() || stock.isEmpty())
         {
             return;
         }
 
-        TradePlan<ItemStack> plan = planner.plan(offer.get(), 1, buyerSlots(player), stockSlots(barrel.get()));
+        TradePlan<ItemStack> plan = planner.plan(offer.get(), 1, buyerSlots(player), stock.get().slots());
         switch (plan)
         {
             case TradePlan.Failure<ItemStack> failure ->
@@ -696,7 +752,12 @@ final class PaperShops
             case TradePlan.Success<ItemStack> success ->
             {
                 commit(player.getInventory(), success.buyerChanges());
-                commit(barrel.get(), success.stockChanges());
+                stock.get().commit(success.stockChanges());
+                if (stock.get().large())
+                {
+                    extraStock.markDirty(shop);
+                    block(shop).ifPresent(barrel -> extraStock.flush(shop, barrel));
+                }
                 player.sendMessage(BukkitItems.text("Trade complete.", ChatColor.GREEN));
             }
         }
@@ -708,11 +769,6 @@ final class PaperShops
         PlayerInventory inventory = player.getInventory();
         return SlotInventory.playerStorage(copies(inventory.getStorageContents()), PaperStackRules.INSTANCE,
                 inventory.getMaxStackSize());
-    }
-
-    static SlotInventory<ItemStack> stockSlots(Inventory inventory)
-    {
-        return SlotInventory.of(copies(inventory.getContents()), PaperStackRules.INSTANCE, inventory.getMaxStackSize());
     }
 
     /** Inventories hand out live mirrors of their stacks, so the planner gets clones. */
@@ -732,6 +788,171 @@ final class PaperShops
         for (SlotChange<ItemStack> change : changes)
         {
             inventory.setItem(change.slot(), change.stack());
+        }
+    }
+
+    // --- Large barrels ------------------------------------------------------------------------------
+
+    /** A large barrel's 54-slot view open for a player. */
+    private record StockView(Shop<ItemStack> shop, Inventory inventory)
+    {
+    }
+
+    /**
+     * Turns on large stock for a barrel shop whose owner has {@code stall.barrel.large}: at creation, and
+     * whenever they open the shop later, so shops they made before getting the permission grow too. It is
+     * never turned off. Returns whether the shop has large stock.
+     */
+    boolean grantLargeStock(Player owner, Shop<ItemStack> shop, Block block)
+    {
+        if (!shop.largeStock() && PaperContainers.isBarrel(block) && CombinedInventories.available()
+                && owner.hasPermission("stall.barrel.large"))
+        {
+            shop.enableLargeStock();
+            save(shop);
+        }
+        return shop.largeStock() && PaperContainers.isBarrel(block);
+    }
+
+    /**
+     * Opens a large barrel's stock for its owner: the barrel's own 27 slots on top and the extra 27 below,
+     * in one vanilla menu whose slots are the live inventories. Protection plugins have already allowed
+     * the click. Returns whether a view opened.
+     */
+    boolean openStock(Player player, Shop<ItemStack> shop)
+    {
+        Optional<Block> anchor = block(shop).filter(PaperContainers::isBarrel);
+        if (!canAccess(player, shop) || anchor.isEmpty() || extraStock == null || !CombinedInventories.available())
+        {
+            return false;
+        }
+        Block barrel = anchor.get();
+        Inventory extra = extraStock.inventory(shop, barrel);
+        Optional<Inventory> own = PaperContainers.inventory(barrel);
+        if (extra == null || own.isEmpty())
+        {
+            player.sendMessage(BukkitItems.text("This shop's extra slots were saved by a newer version of Stall, so "
+                    + "they can't be opened here.", ChatColor.RED));
+            return false;
+        }
+        Inventory combined = CombinedInventories.of(own.get(), extra);
+        InventoryView view = player.openInventory(combined);
+        // Another plugin may have cancelled the opening; only a view that is really open is tracked.
+        if (view == null || view.getTopInventory() != combined)
+        {
+            return false;
+        }
+        view.setTitle("Large Barrel");
+        stockViews.put(player.getUniqueId(), new StockView(shop, combined));
+        return true;
+    }
+
+    /** Whether {@code inventory} is the large barrel view open for {@code player}. */
+    boolean isStockView(Player player, Inventory inventory)
+    {
+        StockView view = stockViews.get(player.getUniqueId());
+        return view != null && view.inventory() == inventory;
+    }
+
+    /**
+     * Called for every click and drag in a large barrel view: the extra slots are written back to the
+     * barrel on the next tick, once the click has been applied.
+     */
+    void stockViewChanged(Player player)
+    {
+        StockView view = stockViews.get(player.getUniqueId());
+        if (view == null || !extraStock.markDirty(view.shop()))
+        {
+            return;
+        }
+        ShopLocation location = view.shop().location();
+        World world = player.getWorld();
+        scheduler.region(world, location.x() >> 4, location.z() >> 4,
+                () -> block(view.shop()).ifPresent(barrel -> extraStock.flush(view.shop(), barrel)));
+    }
+
+    void stockViewClosed(Player player, Inventory inventory)
+    {
+        StockView view = stockViews.get(player.getUniqueId());
+        if (view != null && view.inventory() == inventory && stockViews.remove(player.getUniqueId(), view))
+        {
+            extraStock.markDirty(view.shop());
+            block(view.shop()).ifPresent(barrel -> extraStock.flush(view.shop(), barrel));
+        }
+    }
+
+    /**
+     * Closes every large barrel view open on {@code shop}. Closing saves the view's extra slots, through
+     * {@link #stockViewClosed}, before anything else happens to them.
+     */
+    private void closeStockViews(Shop<ItemStack> shop)
+    {
+        for (Map.Entry<UUID, StockView> open : stockViews.entrySet())
+        {
+            StockView view = open.getValue();
+            if (view.shop() != shop)
+            {
+                continue;
+            }
+            Player viewer = Bukkit.getPlayer(open.getKey());
+            if (viewer == null)
+            {
+                stockViews.remove(open.getKey(), view);
+                continue;
+            }
+            scheduler.entity(viewer, () ->
+            {
+                if (viewer.getOpenInventory().getTopInventory() == view.inventory()) viewer.closeInventory();
+                stockViews.remove(open.getKey(), view);
+            });
+        }
+    }
+
+    /** Whether a large barrel's extra slots hold nothing; a shop that isn't one always does. */
+    boolean extraStockEmpty(Shop<ItemStack> shop)
+    {
+        if (!shop.largeStock() || extraStock == null)
+        {
+            return true;
+        }
+        return block(shop).filter(PaperContainers::isBarrel).map(barrel -> extraStock.isEmpty(shop, barrel)).orElse(true);
+    }
+
+    /** Drops a large barrel's extra slots where it was broken, before the barrel goes. */
+    void dropExtraStock(Shop<ItemStack> shop, Block broken)
+    {
+        if (shop.largeStock() && extraStock != null && PaperContainers.isBarrel(broken)
+                && block(shop).filter(broken::equals).isPresent())
+        {
+            // Nobody may keep putting items into slots that are about to be dropped.
+            closeStockViews(shop);
+            extraStock.dropContents(shop, broken);
+        }
+    }
+
+    /** Writes back the extra slots of every large barrel in a chunk that is unloading. */
+    void chunkUnloading(World world, int x, int z)
+    {
+        if (extraStock != null)
+        {
+            extraStock.unload(registry.inChunk(world.getKey().toString(), x, z), this::block);
+        }
+    }
+
+    private void flushAllExtraStock()
+    {
+        if (extraStock == null)
+        {
+            return;
+        }
+        for (UUID id : extraStock.loadedShops())
+        {
+            registry.all().stream().filter(shop -> shop.id().equals(id)).findFirst()
+                    .ifPresent(shop -> block(shop).ifPresent(barrel ->
+                    {
+                        extraStock.markDirty(shop);
+                        extraStock.flush(shop, barrel);
+                    }));
         }
     }
 }

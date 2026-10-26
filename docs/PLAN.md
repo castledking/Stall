@@ -1,3 +1,7 @@
+> **Stall 1.0.1 update:** two payment slots and three reward slots; barrels, chests and trapped chests,
+> including double chests; optional 54-slot barrels through `stall.barrel.large`. The report below retains
+> its original research and earlier progress as history. Current client checks are in [TESTING.md](TESTING.md).
+
 # Stall: Research and Implementation Plan
 
 Status: **approved 2026-10-23, scoped to Minecraft 26.3 only for now.** Progress is logged in §15.
@@ -1072,3 +1076,36 @@ sanity limit.
 - **Pending client checks:** the new checklist in `TESTING.md`, particularly Folia purchases, menu
   resizing with cursor items, remote-owner disconnects and third-party claim integrations. No full
   client validation is claimed for those paths.
+
+### Stall 1.0.1: reward capacity and containers
+
+- Reward sides now have three independent slots; cost sides retain two. The shared editor, planner,
+  both menu renderers, serialization and item limits follow each side's capacity.
+- Barrel, chest and trapped-chest shops share one rule set. Both halves of double chests resolve to
+  one shop, inventory, ownership guard and explosion/hopper protection. New chest joins require the
+  owner or an administrator. Lookups protect the expected other half without loading its chunk;
+  stock access waits until both halves are loaded and owned by the current Folia region.
+- `stall.barrel.large` is false by default, even for operators. A barrel upgrades on creation or its
+  owner's next normal open. It stays upgraded after permission removal. One live vanilla 54-slot
+  view combines the real barrel and 27 extra slots; transactions use that same inventory state.
+- Extra slots are persisted with the barrel: Fabric data attachments, Bukkit PDC. Fabric writes on
+  changes; Bukkit writes after inventory events, on trades, view close and chunk unload. Cache
+  entries are discarded on unload or replacement. Unreadable item records are preserved.
+- Removing a large-barrel shop by command requires empty extra slots. Breaking it drops readable
+  extra items. Hoppers/comparators only see the underlying vanilla 27 slots. Empty extra slots before
+  uninstalling or moving between Fabric and Bukkit; those block-data formats are platform specific.
+- Schema 1 remains readable/writable for ordinary two-reward barrels. Third rewards, chest shops,
+  large barrels and preserved third rewards select schema 2, so older builds leave those files alone.
+- Tokens keep their existing item data so reward scripts and token-priced offers retain identity.
+- Release version is 1.0.1. The controller has all supplied marketplace IDs and a single-version
+  Discord broadcast rule. Existing subscriptions are preserved; later releases use Stall selections.
+
+Suggested later improvements: owner stock alerts; optional trusted shop managers; a searchable shop
+list with coordinates; and opt-in sales totals. These remain proposals, outside this implementation.
+
+Verification for this update: `./gradlew build :stall-paper:serverTestArtifacts` passes 94 core and
+12 Fabric tests (106 total). Disposable Spigot 26.3, Paper 26.3 build 193 and Folia 26.3 build 5 pass
+the optional server checks. Fabric 26.3 passes the dedicated-server chest explosion/reconciliation
+check, plus a saved extra-stock attachment surviving a full restart. Controller tests pass all 33 release checks; two isolated SQLite tests verify first-release
+and later-release audiences, duplicate suppression and rollback after queue failure. True player
+interaction with the new menus, Folia trades and third-party claim integrations remains in TESTING.md.

@@ -1,7 +1,7 @@
 # Testing Stall
 
-This round is short. It covers the fix for amounts in the owner menu, plus the one round-four check whose
-instructions were wrong.
+The current round covers Stall 1.0.1: three reward slots, chest shops and permission-based 54-slot barrels.
+The completed amount checks below are retained as test history.
 
 Rounds one to four passed. The results are in [PLAN.md](PLAN.md#15-progress).
 
@@ -67,8 +67,10 @@ The same checks run on Paper 26.3. On Folia they use its region and entity sched
 
 Checks cover native item round trips (names, lore, damage, enchantments, custom data, potions and custom
 stack sizes), old-item upgrades, future/unknown-item rejection, command permissions and amount bounds,
-menu rendering and click cancellation, two-for-two purchases, repeated clicks, failed trades leaving both
-inventories unchanged, barrel markers, hopper extraction/input, break protection, real explosions, and orphan cleanup/refunds. Folia additionally verifies ownership rejection between chunks 8,192 blocks apart, region scheduling, and an entity callback returning to its own region. Player inventories
+menu rendering and click cancellation, two-payment/three-reward purchases across both chest halves, repeated
+clicks, failed trades leaving inventories unchanged, markers, hopper guards, chest joining/breaking, real
+explosions, unavailable chest halves, large-barrel live inventory composition and extra-stock round trips,
+extra-item drops, and orphan cleanup/refunds. Folia additionally verifies ownership rejection between chunks 8,192 blocks apart, region scheduling, and an entity callback returning to its own region. Player inventories
 and clicks are simulated against real Bukkit inventories; this does not replace a vanilla-client test.
 
 For cross-server item checks, start each test server with the same JVM property, for example
@@ -113,3 +115,29 @@ platform move, and let an unmarked replacement barrel be placed before the ten-s
 Automated verification covers Spigot 26.3 (BuildTools), Paper 26.3 build 193, Folia 26.3 build 5 and
 Fabric Loader 0.19.3 / Fabric API 0.162.0+26.3 on a dedicated 26.3 server. Real Folia player interaction
 and third-party claim-plugin behavior remain client checks; startup alone does not verify those paths.
+
+## Stall 1.0.1 client round
+
+Run on Fabric, Spigot/Paper and Folia with a vanilla client. These new checks are pending; the earlier
+checked boxes describe the previous version, whose reward side had two slots.
+
+- [ ] Configure all three rewards, including different items and three stacks of the same item. Check
+      increment/decrement, shift-click, Q, F, drags, growing menus and exact buyer quantities. Restart.
+- [ ] Create single/double chest and trapped-chest shops. Both halves open the same shop, share stock,
+      block unauthorized access/breaking and hopper extraction, and survive explosions. Removing either
+      half once returns one token and clears the remaining marker. Copper chests stay ordinary blocks.
+- [ ] Join a chest to your own shop. Someone else cannot join theirs; sneaking places a separate chest.
+      Check this alongside the server's claim plugin, including claim borders and chunk borders.
+- [ ] Without `stall.barrel.large`, a barrel stays 27 slots, including for operators. Grant the permission
+      through LuckPerms; a new or existing barrel shop opens 54 slots on its owner's next normal click.
+- [ ] Stock all 54 slots using shift-click, number keys and drags. Buyers use items in the extra slots,
+      payments fit in either half, and a failed trade changes nothing. Hoppers/comparators see only the
+      ordinary 27. A protected owner's click still respects the claim plugin.
+- [ ] Restart and unload/reload the chunk with extra items stored. Counts and custom item data survive.
+      Remove the permission: the existing large barrel stays large. Check concurrent owners/buyers on Folia.
+- [ ] `/stall remove` refuses while extra slots contain items. Empty them and remove; it succeeds. Breaking
+      a stocked large barrel drops every extra item and one token, without leaving an open usable view.
+- [ ] Before switching between Fabric and Spigot/Paper or uninstalling Stall, empty extra slots. Ordinary
+      stock and shop files still migrate; block attachments use different formats on the two platforms.
+- [ ] Keep older two-reward barrel files readable; new third-reward/chest/large-barrel shops use schema 2.
+      Rolling back to Stall 1.0.0 leaves those newer files untouched.

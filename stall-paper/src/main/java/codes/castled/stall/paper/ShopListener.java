@@ -4,7 +4,6 @@ import codes.castled.stall.shop.Shop;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
-import org.bukkit.block.Barrel;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
@@ -14,8 +13,10 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockExplodeEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
+import org.bukkit.event.world.ChunkUnloadEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
@@ -42,7 +43,7 @@ final class ShopListener implements Listener
     /**
      * Opens the shop menus. Runs at {@code LOWEST}, before protection plugins such as GriefPrevention,
      * so buyers can use shops inside claims they are not trusted in. Cancelling the click keeps the
-     * barrel itself shut; only the owner's restocking clicks pass through to protection and vanilla.
+     * container itself shut; only the owner's restocking clicks pass through to protection and vanilla.
      */
     @EventHandler(priority = EventPriority.LOWEST)
     void onInteract(PlayerInteractEvent event)
@@ -64,7 +65,7 @@ final class ShopListener implements Listener
         }
         Optional<Shop<ItemStack>> shop = shops.shopAt(block);
         shop.ifPresent(shops::reconcile);
-        if (shop.isEmpty() || !shops.registry().isCurrent(shop.get()) || !(block.getState() instanceof Barrel))
+        if (shop.isEmpty() || !shops.registry().isCurrent(shop.get()) || !PaperContainers.isSupported(block))
         {
             return;
         }
@@ -73,7 +74,8 @@ final class ShopListener implements Listener
         boolean manager = owner || (!previewing && player.hasPermission("stall.admin"));
         boolean emptyHanded = BukkitItems.isEmpty(player.getInventory().getItemInMainHand())
                 && BukkitItems.isEmpty(player.getInventory().getItemInOffHand());
-        if (!PaperMarkers.carries(block, shop.get()))
+        // The marker is on the half at the shop's location, which for a double chest may not be this one.
+        if (!shops.isActive(shop.get()))
         {
             // A paused shop stays shut to buyers, which keeps its stock safe. Its owner's clicks go on to
             // protection and vanilla; a sneak-click reactivates it at HIGH below.
@@ -91,18 +93,19 @@ final class ShopListener implements Listener
             shops.openOwnerMenu(player, shop.get());
             return;
         }
-        // The owner's other clicks open the barrel to restock it, through protection as usual.
+        // The owner's other clicks open the container to restock it, through protection as usual; a large
+        // barrel's 54-slot view opens at HIGH below, once protection has allowed the click.
         if (owner)
         {
             return;
         }
-        // Sneaking with an item in hand places it against the barrel instead of opening it, so let
+        // Sneaking with an item in hand places it against the container instead of opening it, so let
         // that through. Sneaking empty-handed still opens containers in vanilla, so it gets the menu.
         if (player.isSneaking() && !emptyHanded)
         {
             return;
         }
-        // Either way the barrel stays shut: a buyer never reaches the stock itself.
+        // Either way the container stays shut: a buyer never reaches the stock itself.
         event.setCancelled(true);
         if (player.hasPermission("stall.use"))
         {
@@ -133,10 +136,42 @@ final class ShopListener implements Listener
         shops.chunkLoaded(event.getWorld(), event.getChunk().getX(), event.getChunk().getZ());
     }
 
+    /** Writes large barrels' extra slots back before their chunk is saved and unloaded. */
+    @EventHandler
+    void onChunkUnload(ChunkUnloadEvent event)
+    {
+        shops.chunkUnloading(event.getWorld(), event.getChunk().getX(), event.getChunk().getZ());
+    }
+
     /**
-     * Turns a barrel into a shop with a token, or reactivates a paused shop. Runs at {@code HIGH}, after
-     * protection plugins such as GriefPrevention (at {@code LOW}), and only if none of them refused the
-     * click: a shop can only go where its owner could open the barrel anyway.
+     * Keeps anyone but a shop's owner, or an operator, from joining a chest onto a chest shop: the new half
+     * would open the whole double chest, stock and all. Placing it while sneaking keeps it separate, as
+     * in vanilla. The owner may join one on, and the shop then covers both halves.
+     */
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    void onPlace(BlockPlaceEvent event)
+    {
+        Block placed = event.getBlockPlaced();
+        if (!PaperContainers.isSupported(placed) || PaperContainers.isBarrel(placed))
+        {
+            return;
+        }
+        Optional<Shop<ItemStack>> shop = PaperContainers.partner(placed).flatMap(shops::shopAt);
+        Player player = event.getPlayer();
+        if (shop.isEmpty() || shop.get().isOwner(player.getUniqueId()) || player.hasPermission("stall.admin"))
+        {
+            return;
+        }
+        event.setCancelled(true);
+        player.sendMessage(BukkitItems.text("That would join your chest onto " + shop.get().ownerName() + "'s shop. "
+                + "Sneak while placing it to keep it separate.", ChatColor.RED));
+    }
+
+    /**
+     * Turns a container into a shop with a token, reactivates a paused shop, or opens a large barrel's
+     * 54-slot stock for its owner. Runs at {@code HIGH}, after protection plugins such as GriefPrevention
+     * (at {@code LOW}), and only if none of them refused the click: a shop can only go where its owner
+     * could open the container anyway.
      */
     @EventHandler(priority = EventPriority.HIGH)
     void onTokenUse(PlayerInteractEvent event)
@@ -150,21 +185,31 @@ final class ShopListener implements Listener
         Player player = event.getPlayer();
         if (block == null || player.getGameMode() == GameMode.SPECTATOR
                 || !FoliaSupport.owns(block.getWorld(), block.getX() >> 4, block.getZ() >> 4)
-                || !(block.getState() instanceof Barrel barrel))
+                || !PaperContainers.isSupported(block))
         {
             return;
         }
         Optional<Shop<ItemStack>> existing = shops.shopAt(block);
         if (existing.isPresent())
         {
-            boolean manager = existing.get().isOwner(player.getUniqueId()) || player.hasPermission("stall.admin");
+            Shop<ItemStack> shop = existing.get();
+            boolean previewing = shops.isPreviewing(player.getUniqueId());
+            boolean owner = shop.isOwner(player.getUniqueId()) && !previewing;
+            boolean manager = owner || (!previewing && player.hasPermission("stall.admin"));
             boolean emptyHanded = BukkitItems.isEmpty(player.getInventory().getItemInMainHand())
                     && BukkitItems.isEmpty(player.getInventory().getItemInOffHand());
-            if (manager && player.isSneaking() && emptyHanded && !PaperMarkers.carries(block, existing.get())
-                    && !shops.isPreviewing(player.getUniqueId()))
+            boolean active = shops.isActive(shop);
+            if (manager && player.isSneaking() && emptyHanded && !active)
             {
                 event.setCancelled(true);
-                shops.reactivate(player, block, existing.get());
+                shops.reactivate(player, shop);
+                return;
+            }
+            // The owner restocking: a large barrel opens as one 54-slot view instead of the barrel's own 27.
+            if (owner && active && !player.isSneaking() && shops.grantLargeStock(player, shop, block)
+                    && shops.openStock(player, shop))
+            {
+                event.setCancelled(true);
             }
             return;
         }
@@ -173,7 +218,7 @@ final class ShopListener implements Listener
             return;
         }
         event.setCancelled(true);
-        shops.create(player, block, barrel);
+        shops.create(player, block);
     }
 
     /** Keeps hoppers and hopper minecarts from pulling a shop's stock out. Hoppers can still put items in. */
@@ -181,10 +226,11 @@ final class ShopListener implements Listener
     void onHopperPull(InventoryMoveItemEvent event)
     {
         Inventory source = event.getSource();
-        if (source.getType() != InventoryType.BARREL)
+        if (source.getType() != InventoryType.BARREL && source.getType() != InventoryType.CHEST)
         {
             return;
         }
+        // A double chest's location is between its halves, which lands in one of them; shopAt covers both.
         Location location = source.getLocation();
         if (location != null && shops.shopAt(location.getBlock()).isPresent())
         {
@@ -211,12 +257,35 @@ final class ShopListener implements Listener
         }
     }
 
+    /** Any click or drag in a large barrel's view may have changed its extra slots, which are then saved. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    void onStockClick(InventoryClickEvent event)
+    {
+        if (event.getWhoClicked() instanceof Player player && shops.isStockView(player, event.getView().getTopInventory()))
+        {
+            shops.stockViewChanged(player);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    void onStockDrag(InventoryDragEvent event)
+    {
+        if (event.getWhoClicked() instanceof Player player && shops.isStockView(player, event.getView().getTopInventory()))
+        {
+            shops.stockViewChanged(player);
+        }
+    }
+
     @EventHandler
     void onClose(InventoryCloseEvent event)
     {
         if (event.getInventory().getHolder() instanceof StallMenu menu)
         {
             shops.closed(menu);
+        }
+        else if (event.getPlayer() instanceof Player player)
+        {
+            shops.stockViewClosed(player, event.getInventory());
         }
     }
 
@@ -236,7 +305,11 @@ final class ShopListener implements Listener
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     void onBroken(BlockBreakEvent event)
     {
-        shops.shopAt(event.getBlock()).ifPresent(shop -> shops.remove(shop, event.getPlayer(), true));
+        shops.shopAt(event.getBlock()).ifPresent(shop ->
+        {
+            shops.dropExtraStock(shop, event.getBlock());
+            shops.remove(shop, event.getPlayer(), event.getBlock());
+        });
     }
 
     @EventHandler

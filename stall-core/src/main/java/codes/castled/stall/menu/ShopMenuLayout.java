@@ -9,7 +9,7 @@ import codes.castled.stall.shop.Shop;
  *
  * <pre>
  * column    0      1     2      3      4     5     6     7     8
- *        [remove] [pay] [pay] [status] [get] [get]       [buy]
+ *        [remove] [pay] [pay] [status] [get] [get] [get]       [buy]
  * </pre>
  *
  * The buyer menu uses the buy column and leaves the first one empty; the owner menu puts a remove
@@ -27,7 +27,7 @@ public final class ShopMenuLayout
     private static final int FIRST_COST_COLUMN = 1;
     private static final int STATUS_COLUMN = 3;
     private static final int FIRST_REWARD_COLUMN = 4;
-    private static final int BUY_COLUMN = 7;
+    private static final int BUY_COLUMN = 8;
 
     public enum Role
     {
@@ -119,12 +119,12 @@ public final class ShopMenuLayout
             return new SlotRole(Role.BUY, row, -1);
         }
         int costIndex = column - FIRST_COST_COLUMN;
-        if (costIndex >= 0 && costIndex < OfferSlots.SIZE && column < STATUS_COLUMN)
+        if (costIndex >= 0 && costIndex < OfferSlots.COST_SLOTS && column < STATUS_COLUMN)
         {
             return new SlotRole(Role.COST, row, costIndex);
         }
         int rewardIndex = column - FIRST_REWARD_COLUMN;
-        if (rewardIndex >= 0 && rewardIndex < OfferSlots.SIZE && column < BUY_COLUMN)
+        if (rewardIndex >= 0 && rewardIndex < OfferSlots.REWARD_SLOTS && column < BUY_COLUMN)
         {
             return new SlotRole(Role.REWARD, row, rewardIndex);
         }

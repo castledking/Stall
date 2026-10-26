@@ -25,9 +25,9 @@ import java.util.UUID;
  * </table>
  *
  * <p>Each slot holds at most one stack of its item: 64 of most items, 16 ender pearls, one sword. Adding to
- * a slot fills it up to a stack. Adding to a slot that is already full carries on in the side's other slot,
- * if that slot is empty or holds the same item with room to spare; otherwise nothing changes. So one side of
- * an offer asks for at most two stacks.
+ * a slot fills it up to a stack. Adding to a slot that is already full carries on in the first of the side's
+ * other slots that is empty or holds the same item with room to spare; if there is none, nothing changes.
+ * So a buyer pays at most two stacks and gets at most three.
  *
  * <p>Putting an item in the empty row below the last offer starts a new offer. An offer whose last item is
  * taken out is removed.
@@ -53,7 +53,7 @@ public final class OfferEditor<I>
     {
         I held = cursor == null || rules.isEmpty(cursor) ? null : cursor;
         int offerCount = shop.offers().size();
-        if (row < 0 || row > offerCount || index < 0 || index >= OfferSlots.SIZE)
+        if (row < 0 || row > offerCount || index < 0 || index >= OfferSlots.capacity(cost))
         {
             return false;
         }
@@ -64,7 +64,7 @@ public final class OfferEditor<I>
         }
 
         Offer<I> offer = newOffer
-                ? new Offer<>(UUID.randomUUID(), OfferSlots.empty(), OfferSlots.empty())
+                ? new Offer<>(UUID.randomUUID(), OfferSlots.empty(true), OfferSlots.empty(false))
                 : shop.offers().get(row);
         OfferSlots<I> side = offer.side(cost);
         OfferSlots<I> edited = edit(side, index, click, held);
@@ -121,7 +121,7 @@ public final class OfferEditor<I>
 
     /**
      * Adds {@code amount} to slot {@code index}, up to a stack. A slot that is already full passes the
-     * increase to the side's other slot instead, if that one is empty or holds the same item with room.
+     * increase to the first other slot of the side that is empty or holds the same item with room.
      */
     private OfferSlots<I> increase(OfferSlots<I> side, int index, int amount)
     {
@@ -131,7 +131,7 @@ public final class OfferEditor<I>
         {
             return side.with(index, new OfferItem<>(current.item(), Math.min(current.amount() + amount, stack)));
         }
-        for (int other = 0; other < OfferSlots.SIZE; other++)
+        for (int other = 0; other < side.size(); other++)
         {
             if (other == index)
             {

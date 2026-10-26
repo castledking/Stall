@@ -64,7 +64,7 @@ final class BuyerMenu extends StallMenu
         event.setCancelled(true);
     }
 
-    /** Draws every complete offer against the barrel's and the viewer's current contents. */
+    /** Draws every complete offer against the shop's stock and the viewer's current contents. */
     @Override
     void render()
     {
@@ -72,9 +72,8 @@ final class BuyerMenu extends StallMenu
         rowOffers.clear();
 
         TradePlanner<ItemStack> planner = shops.planner();
-        Optional<Inventory> barrel = shops.stock(shop);
         SlotInventory<ItemStack> buyer = PaperShops.buyerSlots(viewer);
-        SlotInventory<ItemStack> stock = barrel.map(PaperShops::stockSlots).orElse(null);
+        SlotInventory<ItemStack> stock = shops.stock(shop).map(PaperStock::slots).orElse(null);
 
         List<Offer<ItemStack>> offers = shop.completeOffers();
         for (int row = 0; row < Math.min(offers.size(), rows()); row++)

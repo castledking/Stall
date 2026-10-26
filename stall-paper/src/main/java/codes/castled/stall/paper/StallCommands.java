@@ -3,6 +3,7 @@ package codes.castled.stall.paper;
 import codes.castled.stall.offer.Offer;
 import codes.castled.stall.offer.OfferItem;
 import codes.castled.stall.shop.Shop;
+import codes.castled.stall.shop.ShopContainers;
 import codes.castled.stall.shop.Tokens;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -153,7 +154,7 @@ final class StallCommands implements CommandExecutor, TabCompleter
                 "/stall reclaim - collect tokens from shops removed while you were away",
                 "/stall preview - see your own shops as a buyer does");
         CommandSender sender = source;
-        sender.sendMessage(BukkitItems.text("Stall: use a token on a barrel to make it your shop. Sneak and right-click "
+        sender.sendMessage(BukkitItems.text("Stall: use a token on a barrel or chest to make it your shop. Sneak and right-click "
                 + "your shop with an empty hand to set up offers.", ChatColor.GOLD));
         for (String line : lines)
         {
@@ -170,7 +171,7 @@ final class StallCommands implements CommandExecutor, TabCompleter
         }
         PaperShops.giveTokens(player, amount);
         return succeed(source, (amount == 1 ? "Here's a Stall token." : "Here are " + amount + " Stall tokens.")
-                + " Use one on a barrel to make it your shop.", amount);
+                + " Use one on a barrel or chest to make it your shop.", amount);
     }
 
     private static int listOwn(CommandSender source, PaperShops shops)
@@ -185,7 +186,7 @@ final class StallCommands implements CommandExecutor, TabCompleter
         if (owned.isEmpty())
         {
             sender.sendMessage(BukkitItems.text("You don't own any shops (limit: " + limit + "). Use a Stall token on a "
-                    + "barrel to make one."));
+                    + "barrel or chest to make one."));
             return 0;
         }
         sender.sendMessage(BukkitItems.text("Your shops (" + owned.size() + ", limit: " + limit + "):", ChatColor.GOLD));
@@ -219,7 +220,8 @@ final class StallCommands implements CommandExecutor, TabCompleter
         }
         Shop<ItemStack> shop = target.get();
         CommandSender sender = source;
-        sender.sendMessage(BukkitItems.text(shop.ownerName() + "'s shop at " + shop.location(), ChatColor.GOLD));
+        sender.sendMessage(BukkitItems.text(shop.ownerName() + "'s shop at " + shop.location() + ", a "
+                + (shop.largeStock() ? "large " : "") + ShopContainers.describe(shop.container()), ChatColor.GOLD));
         if (shop.offers().isEmpty())
         {
             sender.sendMessage(BukkitItems.text(" No offers yet.", ChatColor.GRAY));
@@ -259,7 +261,12 @@ final class StallCommands implements CommandExecutor, TabCompleter
         {
             return fail(source, "This shop belongs to " + shop.ownerName() + ".");
         }
-        PaperShops.TokenReturn token = shops.remove(shop, player, false);
+        if (!shops.extraStockEmpty(shop))
+        {
+            return fail(source, "This large barrel still holds stock in its extra slots, which an ordinary barrel can't "
+                    + "keep. Empty them first, or break the barrel.");
+        }
+        PaperShops.TokenReturn token = shops.remove(shop, player, null);
         String message = own ? "Removed your shop." : "Removed " + shop.ownerName() + "'s shop.";
         message += switch (token)
         {
@@ -309,7 +316,7 @@ final class StallCommands implements CommandExecutor, TabCompleter
             if (!target.isOnline()) return;
             PaperShops.giveTokens(target, amount);
             String tokens = amount == 1 ? "a Stall token" : amount + " Stall tokens";
-            target.sendMessage(BukkitItems.text("You received " + tokens + ". Use one on a barrel to make it your shop.", ChatColor.GREEN));
+            target.sendMessage(BukkitItems.text("You received " + tokens + ". Use one on a barrel or chest to make it your shop.", ChatColor.GREEN));
             succeed(source, "Gave " + target.getName() + " " + tokens + ".", amount);
         });
         return amount;

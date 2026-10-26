@@ -16,6 +16,8 @@ final class StallPermissions
     static final String CREATE = "create";
     static final String TOKEN = "token";
     static final String ADMIN = "admin";
+    /** Barrel shops hold 54 slots of stock. A perk to hand out, so nobody has it by default. */
+    static final String LARGE_BARREL = "barrel.large";
 
     private StallPermissions()
     {

@@ -17,7 +17,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.entity.BarrelBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,14 +30,15 @@ public final class StallFabric implements ModInitializer
 
     /**
      * Runs before the default phase, where protection mods such as GriefPrevention3D listen, so buyers
-     * can use shops inside claims they are not trusted in. A buyer menu grants no access to the barrel
+     * can use shops inside claims they are not trusted in. A buyer menu grants no access to the container
      * itself; only the owner opens that, and their click passes through to protection as usual.
      */
     private static final Identifier SHOP_ACCESS_PHASE = Identifier.fromNamespaceAndPath(MOD_ID, "shop_access");
 
     /**
      * Runs after the default phase, so a protection mod that refuses the click stops it before a token
-     * can turn the barrel into a shop: a shop can only go where its owner could open the barrel anyway.
+     * can turn a container into a shop: a shop can only go where its owner could open the container anyway.
+     * A large barrel's 54-slot view opens here too, for the same reason.
      */
     private static final Identifier CREATE_PHASE = Identifier.fromNamespaceAndPath(MOD_ID, "create");
 
@@ -54,6 +55,7 @@ public final class StallFabric implements ModInitializer
         ServerLifecycleEvents.SERVER_STARTED.register(shops::startStorage);
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> shops.stopStorage());
         ServerChunkEvents.CHUNK_LOAD.register((level, chunk, generated) -> shops.chunkLoaded(level, chunk.getPos().x(), chunk.getPos().z()));
+        ServerChunkEvents.CHUNK_UNLOAD.register((level, chunk) -> shops.chunkUnloaded(level, chunk.getPos().x(), chunk.getPos().z()));
 
         UseBlockCallback.EVENT.addPhaseOrdering(SHOP_ACCESS_PHASE, Event.DEFAULT_PHASE);
         UseBlockCallback.EVENT.addPhaseOrdering(Event.DEFAULT_PHASE, CREATE_PHASE);
@@ -65,7 +67,8 @@ public final class StallFabric implements ModInitializer
             }
             Optional<Shop<ItemStack>> shop = shops.shopAt(level, hit.getBlockPos());
             shop.ifPresent(found -> shops.reconcile(level, found));
-            if (shop.isEmpty() || !(level.getBlockEntity(hit.getBlockPos()) instanceof BarrelBlockEntity barrel))
+            if (shop.isEmpty() || !shops.registry().isCurrent(shop.get())
+                    || !FabricContainers.isSupported(level.getBlockState(hit.getBlockPos())))
             {
                 return InteractionResult.PASS;
             }
@@ -74,7 +77,8 @@ public final class StallFabric implements ModInitializer
             boolean manager = owner || (!previewing && StallPermissions.has(serverPlayer, StallPermissions.ADMIN));
             boolean emptyHanded = player.getMainHandItem().isEmpty() && player.getOffhandItem().isEmpty();
             boolean sneaking = player.isSecondaryUseActive();
-            if (!ShopMarkers.carries(barrel, shop.get()))
+            // The marker is on the half at the shop's location, which for a double chest may not be this one.
+            if (!shops.isActive(level, shop.get()))
             {
                 // A paused shop stays shut to buyers, which keeps its stock safe. Its owner's clicks go on to
                 // protection and vanilla; a sneak-click reactivates it in the create phase below.
@@ -91,18 +95,19 @@ public final class StallFabric implements ModInitializer
                 shops.openOwnerMenu(serverPlayer, shop.get());
                 return InteractionResult.SUCCESS;
             }
-            // The owner's other clicks open the barrel to restock it, through protection as usual.
+            // The owner's other clicks open the container to restock it, through protection as usual; a large
+            // barrel's 54-slot view opens in the create phase, once protection has allowed the click.
             if (owner)
             {
                 return InteractionResult.PASS;
             }
-            // Sneaking with an item in hand places it against the barrel instead of opening it, so let
+            // Sneaking with an item in hand places it against the container instead of opening it, so let
             // that through. Sneaking empty-handed still opens containers in vanilla, so it gets the menu.
             if (sneaking && !emptyHanded)
             {
                 return InteractionResult.PASS;
             }
-            // Either way the barrel stays shut: a buyer never reaches the stock itself.
+            // Either way the container stays shut: a buyer never reaches the stock itself.
             if (StallPermissions.has(serverPlayer, StallPermissions.USE))
             {
                 shops.openBuyerMenu(serverPlayer, shop.get());
@@ -122,21 +127,30 @@ public final class StallFabric implements ModInitializer
             {
                 return InteractionResult.PASS;
             }
-            if (!(level.getBlockEntity(hit.getBlockPos()) instanceof BarrelBlockEntity barrel))
+            BlockState state = level.getBlockState(hit.getBlockPos());
+            if (!FabricContainers.isSupported(state))
             {
                 return InteractionResult.PASS;
             }
             Optional<Shop<ItemStack>> existing = shops.shopAt(level, hit.getBlockPos());
             if (existing.isPresent())
             {
-                // Reactivating a paused shop: protection has allowed this click, so the owner can open the barrel.
-                boolean manager = existing.get().isOwner(player.getUUID())
-                        || StallPermissions.has(serverPlayer, StallPermissions.ADMIN);
+                Shop<ItemStack> shop = existing.get();
+                boolean previewing = shops.isPreviewing(player.getUUID());
+                boolean owner = shop.isOwner(player.getUUID()) && !previewing;
+                boolean manager = owner || (!previewing && StallPermissions.has(serverPlayer, StallPermissions.ADMIN));
                 boolean emptyHanded = player.getMainHandItem().isEmpty() && player.getOffhandItem().isEmpty();
-                if (manager && player.isSecondaryUseActive() && emptyHanded && !ShopMarkers.carries(barrel, existing.get())
-                        && !shops.isPreviewing(player.getUUID()))
+                boolean active = shops.isActive(level, shop);
+                // Reactivating a paused shop: protection has allowed this click, so the owner can open the container.
+                if (manager && player.isSecondaryUseActive() && emptyHanded && !active)
                 {
-                    shops.reactivate(serverPlayer, barrel, existing.get());
+                    shops.reactivate(serverPlayer, shop);
+                    return InteractionResult.SUCCESS;
+                }
+                // The owner restocking: a large barrel opens as one 54-slot view instead of the barrel's own 27.
+                if (owner && active && !player.isSecondaryUseActive() && shops.grantLargeStock(serverPlayer, shop, state)
+                        && shops.openStock(serverPlayer, shop))
+                {
                     return InteractionResult.SUCCESS;
                 }
                 return InteractionResult.PASS;
@@ -146,7 +160,7 @@ public final class StallFabric implements ModInitializer
             {
                 return InteractionResult.PASS;
             }
-            shops.create(serverPlayer, (ServerLevel) level, hit.getBlockPos(), barrel, held);
+            shops.create(serverPlayer, (ServerLevel) level, hit.getBlockPos(), held);
             return InteractionResult.SUCCESS;
         });
 
@@ -167,8 +181,11 @@ public final class StallFabric implements ModInitializer
         {
             if (player instanceof ServerPlayer serverPlayer)
             {
-                shops.shopAt(level, pos).ifPresent(shop ->
-                        shops.remove(serverPlayer.level().getServer(), shop, serverPlayer, true));
+                shops.shopOfBroken(level, pos, state).ifPresent(found ->
+                {
+                    shops.dropExtraStock(serverPlayer.level().getServer(), level, found, pos, state, blockEntity);
+                    shops.remove(serverPlayer.level().getServer(), found, serverPlayer, pos);
+                });
             }
         });
 

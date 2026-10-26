@@ -4,7 +4,7 @@ main: codes.castled.stall.paper.StallPlugin
 # The oldest server Stall supports. Stall targets Minecraft 26.3 only for now.
 api-version: '26.3'
 folia-supported: true
-description: Physical player shops. Turn a barrel into a shop, stock it, and trade with other players.
+description: Physical player shops. Turn a barrel or chest into a shop, stock it, and trade with other players.
 author: castledking
 website: https://castled.codes
 commands:
@@ -24,6 +24,9 @@ permissions:
   stall.limit.unlimited:
     description: Own any number of shops.
     default: op
+  stall.barrel.large:
+    description: Barrel shops hold 54 slots of stock instead of 27.
+    default: false
   stall.admin:
     description: Manage and remove any shop, and use /stall admin.
     default: op

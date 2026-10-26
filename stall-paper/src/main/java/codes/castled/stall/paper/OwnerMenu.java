@@ -123,7 +123,7 @@ final class OwnerMenu extends StallMenu
     {
         beginRender();
         TradePlanner<ItemStack> planner = shops.planner();
-        SlotInventory<ItemStack> stock = shops.stock(shop).map(PaperShops::stockSlots).orElse(null);
+        SlotInventory<ItemStack> stock = shops.stock(shop).map(PaperStock::slots).orElse(null);
         long tick = shops.currentTick();
 
         List<Offer<ItemStack>> offers = shop.offers();
@@ -141,8 +141,8 @@ final class OwnerMenu extends StallMenu
             }
             else if (row == offers.size())
             {
-                drawItems(row, OfferSlots.empty(), true);
-                drawItems(row, OfferSlots.empty(), false);
+                drawItems(row, OfferSlots.empty(true), true);
+                drawItems(row, OfferSlots.empty(false), false);
                 inventory.setItem(ShopMenuLayout.statusSlot(row), MenuItems.newOffer());
             }
         }
@@ -150,7 +150,7 @@ final class OwnerMenu extends StallMenu
 
     private void drawItems(int row, OfferSlots<ItemStack> side, boolean cost)
     {
-        for (int i = 0; i < OfferSlots.SIZE; i++)
+        for (int i = 0; i < side.size(); i++)
         {
             OfferItem<ItemStack> item = side.get(i);
             inventory.setItem(ShopMenuLayout.itemSlot(row, cost, i),

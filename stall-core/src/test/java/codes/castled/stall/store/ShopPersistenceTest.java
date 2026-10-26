@@ -279,7 +279,7 @@ class ShopPersistenceTest
     private static Offer<Item> offer(String cost)
     {
         return new Offer<>(UUID.randomUUID(),
-                OfferSlots.of(List.of(new OfferItem<>(new Item(cost, ""), 1))),
-                OfferSlots.of(List.of(new OfferItem<>(new Item("minecraft:bread", ""), 4))));
+                OfferSlots.costs(List.of(new OfferItem<>(new Item(cost, ""), 1))),
+                OfferSlots.rewards(List.of(new OfferItem<>(new Item("minecraft:bread", ""), 4))));
     }
 }
