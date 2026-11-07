@@ -68,4 +68,13 @@ class RemoveConfirmationTest
         confirmation.reset();
         assertFalse(confirmation.press(offer, 120));
     }
+
+    @Test
+    void zeroCooldownStillRequiresTwoPressesButConfirmsImmediately()
+    {
+        assertFalse(confirmation.press(offer, 100, 0));
+        assertTrue(confirmation.isArmed(offer, 100));
+        assertTrue(confirmation.press(offer, 100, 0));
+        assertFalse(confirmation.isArmed(offer, 100));
+    }
 }

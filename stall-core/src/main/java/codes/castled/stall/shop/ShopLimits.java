@@ -36,17 +36,27 @@ public final class ShopLimits
      */
     public static int limitFor(Predicate<String> hasPermission)
     {
+        return limitFor(hasPermission, DEFAULT_LIMIT, HIGHEST_TIER);
+    }
+
+    /**
+     * @param hasPermission whether the player has a permission, named without the {@code stall.} prefix
+     * @param defaultLimit shops a player may own without any {@code stall.limit.<n>} permission
+     * @param highestTier the highest numbered {@code stall.limit.<n>} tier checked
+     */
+    public static int limitFor(Predicate<String> hasPermission, int defaultLimit, int highestTier)
+    {
         if (hasPermission.test(UNLIMITED_PERMISSION))
         {
             return UNLIMITED;
         }
-        for (int limit = HIGHEST_TIER; limit >= 0; limit--)
+        for (int limit = highestTier; limit >= 0; limit--)
         {
             if (hasPermission.test(tierPermission(limit)))
             {
                 return limit;
             }
         }
-        return DEFAULT_LIMIT;
+        return defaultLimit;
     }
 }

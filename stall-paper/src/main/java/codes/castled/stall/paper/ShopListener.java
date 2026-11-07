@@ -1,7 +1,6 @@
 package codes.castled.stall.paper;
 
 import codes.castled.stall.shop.Shop;
-import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
@@ -82,8 +81,7 @@ final class ShopListener implements Listener
             if (!manager)
             {
                 event.setCancelled(true);
-                player.sendMessage(BukkitItems.text("This shop is paused until its owner opens it again.",
-                        ChatColor.YELLOW));
+                BukkitItems.send(player, shops.lang().chat("shops.paused"));
             }
             return;
         }
@@ -113,7 +111,7 @@ final class ShopListener implements Listener
         }
         else
         {
-            player.sendMessage(BukkitItems.text("You don't have permission to use shops.", ChatColor.RED));
+            BukkitItems.send(player, shops.lang().chat("shops.no-use-permission"));
         }
     }
 
@@ -121,13 +119,19 @@ final class ShopListener implements Listener
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     void onEntityExplosion(EntityExplodeEvent event)
     {
-        event.blockList().removeIf(block -> shops.shopAt(block).isPresent());
+        if (shops.config().protectExplosions())
+        {
+            event.blockList().removeIf(block -> shops.shopAt(block).isPresent());
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     void onBlockExplosion(BlockExplodeEvent event)
     {
-        event.blockList().removeIf(block -> shops.shopAt(block).isPresent());
+        if (shops.config().protectExplosions())
+        {
+            event.blockList().removeIf(block -> shops.shopAt(block).isPresent());
+        }
     }
 
     @EventHandler
@@ -158,13 +162,22 @@ final class ShopListener implements Listener
         }
         Optional<Shop<ItemStack>> shop = PaperContainers.partner(placed).flatMap(shops::shopAt);
         Player player = event.getPlayer();
-        if (shop.isEmpty() || shop.get().isOwner(player.getUniqueId()) || player.hasPermission("stall.admin"))
+        if (shop.isEmpty())
+        {
+            return;
+        }
+        if (!shops.config().doubleChestsAllowed())
+        {
+            event.setCancelled(true);
+            BukkitItems.send(player, shops.lang().chat("shops.double-chest-disabled"));
+            return;
+        }
+        if (shop.get().isOwner(player.getUniqueId()) || player.hasPermission("stall.admin"))
         {
             return;
         }
         event.setCancelled(true);
-        player.sendMessage(BukkitItems.text("That would join your chest onto " + shop.get().ownerName() + "'s shop. "
-                + "Sneak while placing it to keep it separate.", ChatColor.RED));
+        BukkitItems.send(player, shops.lang().chat("shops.chest-join-blocked", "owner", shop.get().ownerName()));
     }
 
     /**
@@ -225,17 +238,26 @@ final class ShopListener implements Listener
     @EventHandler(ignoreCancelled = true)
     void onHopperPull(InventoryMoveItemEvent event)
     {
-        Inventory source = event.getSource();
-        if (source.getType() != InventoryType.BARREL && source.getType() != InventoryType.CHEST)
+        if (shops.config().protectHopperExtract() && isShopInventory(event.getSource()))
         {
+            event.setCancelled(true);
             return;
         }
-        // A double chest's location is between its halves, which lands in one of them; shopAt covers both.
-        Location location = source.getLocation();
-        if (location != null && shops.shopAt(location.getBlock()).isPresent())
+        if (!shops.config().allowHopperInsert() && isShopInventory(event.getDestination()))
         {
             event.setCancelled(true);
         }
+    }
+
+    private boolean isShopInventory(Inventory inventory)
+    {
+        if (inventory.getType() != InventoryType.BARREL && inventory.getType() != InventoryType.CHEST)
+        {
+            return false;
+        }
+        // A double chest's location is between its halves, which lands in one of them; shopAt covers both.
+        Location location = inventory.getLocation();
+        return location != null && shops.shopAt(location.getBlock()).isPresent();
     }
 
     /** Hands every click while a shop menu is open, in either half of the screen, to that menu. */
@@ -299,7 +321,7 @@ final class ShopListener implements Listener
             return;
         }
         event.setCancelled(true);
-        player.sendMessage(BukkitItems.text("This shop belongs to " + shop.get().ownerName() + ".", ChatColor.RED));
+        BukkitItems.send(player, shops.lang().chat("shops.belongs-to", "owner", shop.get().ownerName()));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -318,8 +340,9 @@ final class ShopListener implements Listener
         int owed = shops.tokensOwed(event.getPlayer().getUniqueId());
         if (owed > 0)
         {
-            event.getPlayer().sendMessage(BukkitItems.text((owed == 1 ? "A Stall token is" : owed + " Stall tokens are")
-                    + " waiting for you from removed shops. Use /stall reclaim to collect.", ChatColor.YELLOW));
+            BukkitItems.send(event.getPlayer(), shops.lang().chat(
+                    owed == 1 ? "shops.join-reclaim-one" : "shops.join-reclaim-many",
+                    "count", String.valueOf(owed)));
         }
     }
 

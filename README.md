@@ -70,6 +70,7 @@ LuckPerms is optional on both platforms. Without a permission plugin or mod, Sta
 | `/stall reclaim` | Collect tokens from shops removed while you were offline. |
 | `/stall preview` | See your own shops the way buyers do, to test them. |
 | `/stall admin give <player> [amount]` | Give a player Stall tokens. |
+| `/stall admin reload` | Reload `config.yml` and `lang.yml`. |
 
 ## Permissions
 

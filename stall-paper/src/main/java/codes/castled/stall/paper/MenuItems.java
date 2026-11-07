@@ -1,9 +1,9 @@
 package codes.castled.stall.paper;
 
+import codes.castled.stall.config.StallLang;
 import codes.castled.stall.offer.OfferItem;
 import codes.castled.stall.offer.OfferStatus;
 import codes.castled.stall.trade.ItemAmount;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 
@@ -21,29 +21,31 @@ final class MenuItems
      * A copy of an offer's item with a line saying how many the trade moves, as the buyer sees it. The
      * stack shows that count when it fits one stack; the lore always gives the exact amount.
      */
-    static ItemStack offerItem(OfferItem<ItemStack> item, boolean cost)
+    static ItemStack offerItem(StallLang lang, OfferItem<ItemStack> item, boolean cost)
     {
-        return withAmountLine(item, cost ? "You pay " : "You get ", cost, List.of());
+        String key = cost ? "menu.offer-item.buyer-pay" : "menu.offer-item.buyer-get";
+        return withAmountLine(item, lang.text(key, "amount", String.valueOf(item.amount())), List.of());
     }
 
     /** An offer's item in the owner menu, with how to change it. */
-    static ItemStack editableOfferItem(OfferItem<ItemStack> item, boolean cost)
+    static ItemStack editableOfferItem(StallLang lang, OfferItem<ItemStack> item, boolean cost)
     {
-        return withAmountLine(item, cost ? "Buyers pay " : "Buyers get ", cost, List.of(
-                line("Click with an item: put it in", ChatColor.GRAY),
-                line("Left/right-click: one more/fewer", ChatColor.GRAY),
-                line("Shift-click: a stack more/fewer", ChatColor.GRAY),
-                line("Q: take it out", ChatColor.GRAY)));
+        String key = cost ? "menu.offer-item.owner-pay" : "menu.offer-item.owner-get";
+        return withAmountLine(item, lang.text(key, "amount", String.valueOf(item.amount())),
+                BukkitItems.itemLines(lang.lines("menu.offer-item.edit-lore")));
     }
 
-    private static ItemStack withAmountLine(OfferItem<ItemStack> item, String prefix, boolean cost, List<String> extra)
+    private static ItemStack withAmountLine(OfferItem<ItemStack> item, String amountLine, List<String> extra)
     {
         ItemStack display = BukkitItems.withCount(item.item(), Math.clamp(item.amount(), 1, item.item().getMaxStackSize()));
         BukkitItems.editMeta(display, meta ->
         {
             List<String> existing = meta.getLore();
             List<String> lore = existing == null ? new ArrayList<>() : new ArrayList<>(existing);
-            lore.add(line(prefix + item.amount() + "×", cost ? ChatColor.GOLD : ChatColor.GREEN));
+            if (!amountLine.isEmpty())
+            {
+                lore.add(BukkitItems.itemLine(amountLine));
+            }
             lore.addAll(extra);
             meta.setLore(lore);
         });
@@ -51,18 +53,18 @@ final class MenuItems
     }
 
     /** An empty item slot in the owner menu. */
-    static ItemStack emptyOfferSlot(boolean cost)
+    static ItemStack emptyOfferSlot(StallLang lang, boolean cost)
     {
         return named(Material.LIGHT_GRAY_STAINED_GLASS_PANE,
-                line(cost ? "Add what buyers pay" : "Add what buyers get", cost ? ChatColor.GOLD : ChatColor.GREEN),
-                List.of(line("Click with an item to put it here", ChatColor.GRAY)));
+                BukkitItems.itemLine(lang.text(cost ? "menu.empty-slot.cost-name" : "menu.empty-slot.reward-name")),
+                BukkitItems.itemLines(lang.lines("menu.empty-slot.lore")));
     }
 
-    static ItemStack removeButton(boolean armed)
+    static ItemStack removeButton(StallLang lang, boolean armed)
     {
         ItemStack stack = named(Material.BARRIER,
-                line(armed ? "Press Q again to remove" : "Remove offer", ChatColor.RED),
-                List.of(line(armed ? "Any other click cancels" : "Press Q, then Q again", ChatColor.GRAY)));
+                BukkitItems.itemLine(lang.text(armed ? "menu.remove-button.armed-name" : "menu.remove-button.name")),
+                BukkitItems.itemLines(lang.lines(armed ? "menu.remove-button.armed-lore" : "menu.remove-button.lore")));
         if (armed)
         {
             BukkitItems.editMeta(stack, meta -> meta.setEnchantmentGlintOverride(true));
@@ -71,30 +73,32 @@ final class MenuItems
     }
 
     /** The status pane of an offer in the owner menu. */
-    static ItemStack ownerStatus(boolean complete, int timesInStock, List<ItemAmount<ItemStack>> missingStock)
+    static ItemStack ownerStatus(StallLang lang, boolean complete, int timesInStock,
+            List<ItemAmount<ItemStack>> missingStock)
     {
         if (!complete)
         {
-            return named(Material.GRAY_STAINED_GLASS_PANE, line("Not set up yet", ChatColor.GRAY),
-                    List.of(line("Buyers see this offer once it has", ChatColor.GRAY),
-                            line("an item on each side.", ChatColor.GRAY)));
+            return named(Material.GRAY_STAINED_GLASS_PANE,
+                    BukkitItems.itemLine(lang.text("menu.owner-incomplete.name")),
+                    BukkitItems.itemLines(lang.lines("menu.owner-incomplete.lore")));
         }
-        return status(timesInStock == 0 ? OfferStatus.OUT_OF_STOCK : OfferStatus.AVAILABLE, timesInStock, missingStock);
+        return status(lang, timesInStock == 0 ? OfferStatus.OUT_OF_STOCK : OfferStatus.AVAILABLE, timesInStock,
+                missingStock);
     }
 
     /** The status pane of the empty row a new offer is put in. */
-    static ItemStack newOffer()
+    static ItemStack newOffer(StallLang lang)
     {
-        return named(Material.WHITE_STAINED_GLASS_PANE, line("New offer", ChatColor.WHITE),
-                List.of(line("Put what buyers pay on the left", ChatColor.GRAY),
-                        line("and what they get on the right.", ChatColor.GRAY)));
+        return named(Material.WHITE_STAINED_GLASS_PANE,
+                BukkitItems.itemLine(lang.text("menu.new-offer.name")),
+                BukkitItems.itemLines(lang.lines("menu.new-offer.lore")));
     }
 
     /**
      * The status pane. When the shop is out of stock or the buyer can't afford the trade, its lore lists
      * exactly which items are short and by how many.
      */
-    static ItemStack status(OfferStatus status, int timesInStock, List<ItemAmount<ItemStack>> missing)
+    static ItemStack status(StallLang lang, OfferStatus status, int timesInStock, List<ItemAmount<ItemStack>> missing)
     {
         Material pane = switch (status)
         {
@@ -103,27 +107,39 @@ final class MenuItems
             case CANNOT_AFFORD, INVENTORY_FULL -> Material.ORANGE_STAINED_GLASS_PANE;
             case SHOP_FULL, INCOMPLETE, UNAVAILABLE -> Material.GRAY_STAINED_GLASS_PANE;
         };
-        String stock = timesInStock == 1 ? "1 trade in stock" : timesInStock + " trades in stock";
+        String stock = timesInStock == 1
+                ? lang.text("menu.status.stock-one", "count", "1")
+                : lang.text("menu.status.stock-many", "count", String.valueOf(timesInStock));
         List<String> lore = new ArrayList<>();
-        lore.add(line(stock, ChatColor.GRAY));
+        if (!stock.isEmpty())
+        {
+            lore.add(BukkitItems.itemLine(stock));
+        }
         if (!missing.isEmpty())
         {
-            lore.add(line(status == OfferStatus.OUT_OF_STOCK ? "The shop is out of:" : "You still need:",
-                    ChatColor.GRAY));
+            String header = lang.text(status == OfferStatus.OUT_OF_STOCK
+                    ? "menu.status.missing-stock-header"
+                    : "menu.status.missing-payment-header");
+            if (!header.isEmpty())
+            {
+                lore.add(BukkitItems.itemLine(header));
+            }
             for (ItemAmount<ItemStack> item : missing)
             {
-                lore.add(line(" " + item.amount() + "× ", ChatColor.WHITE) + BukkitItems.name(item.item()));
+                lore.add(BukkitItems.itemLine(lang.text("menu.status.missing-item",
+                        "amount", String.valueOf(item.amount()),
+                        "item", BukkitItems.name(item.item()))));
             }
         }
-        return named(pane, line(status.label(), color(status)), lore);
+        return named(pane, BukkitItems.itemLine(lang.status(status)), lore);
     }
 
-    static ItemStack buyButton(OfferStatus status)
+    static ItemStack buyButton(StallLang lang, OfferStatus status)
     {
         boolean available = status == OfferStatus.AVAILABLE;
         return named(available ? Material.LIME_DYE : Material.GRAY_DYE,
-                available ? line("Buy", ChatColor.GREEN) : line(status.label(), color(status)),
-                available ? List.of(line("Click to trade", ChatColor.GRAY)) : List.of());
+                BukkitItems.itemLine(available ? lang.text("menu.buy-button.name") : lang.status(status)),
+                available ? BukkitItems.itemLines(lang.lines("menu.buy-button.lore")) : List.of());
     }
 
     private static ItemStack named(Material material, String name, List<String> lore)
@@ -138,21 +154,5 @@ final class MenuItems
             }
         });
         return stack;
-    }
-
-    private static ChatColor color(OfferStatus status)
-    {
-        return switch (status)
-        {
-            case AVAILABLE -> ChatColor.GREEN;
-            case OUT_OF_STOCK -> ChatColor.RED;
-            case CANNOT_AFFORD, INVENTORY_FULL -> ChatColor.GOLD;
-            case SHOP_FULL, INCOMPLETE, UNAVAILABLE -> ChatColor.GRAY;
-        };
-    }
-
-    private static String line(String text, ChatColor color)
-    {
-        return BukkitItems.text(text, color);
     }
 }

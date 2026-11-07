@@ -10,7 +10,6 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
-import net.minecraft.ChatFormatting;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -41,9 +40,6 @@ public final class StallFabric implements ModInitializer
      * A large barrel's 54-slot view opens here too, for the same reason.
      */
     private static final Identifier CREATE_PHASE = Identifier.fromNamespaceAndPath(MOD_ID, "create");
-
-    /** How often open shop menus are redrawn to show stock that changed meanwhile. */
-    private static final int MENU_REFRESH_TICKS = 20;
 
     private final FabricShops shops = new FabricShops(LOGGER);
 
@@ -86,8 +82,7 @@ public final class StallFabric implements ModInitializer
                 {
                     return InteractionResult.PASS;
                 }
-                serverPlayer.sendSystemMessage(FabricShops.text("This shop is paused until its owner opens it again.",
-                        ChatFormatting.YELLOW));
+                FabricText.send(serverPlayer, shops.lang().chat("shops.paused"));
                 return InteractionResult.SUCCESS;
             }
             if (manager && sneaking && emptyHanded)
@@ -114,8 +109,7 @@ public final class StallFabric implements ModInitializer
             }
             else
             {
-                serverPlayer.sendSystemMessage(FabricShops.text(
-                        "You don't have permission to use shops.", ChatFormatting.RED));
+                FabricText.send(serverPlayer, shops.lang().chat("shops.no-use-permission"));
             }
             return InteractionResult.SUCCESS;
         });
@@ -173,8 +167,7 @@ public final class StallFabric implements ModInitializer
             {
                 return true;
             }
-            player.sendSystemMessage(FabricShops.text(
-                    "This shop belongs to " + shop.get().ownerName() + ".", ChatFormatting.RED));
+            FabricText.send(serverPlayer, shops.lang().chat("shops.belongs-to", "owner", shop.get().ownerName()));
             return false;
         });
         PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) ->
@@ -193,7 +186,7 @@ public final class StallFabric implements ModInitializer
         {
             shops.endOfTick();
             if (server.getTickCount() % 200 == 0) shops.sweep(server);
-            if (server.getTickCount() % MENU_REFRESH_TICKS == 0)
+            if (server.getTickCount() % shops.config().menuRefreshTicks() == 0)
             {
                 shops.refreshOpenMenus();
             }
@@ -204,8 +197,9 @@ public final class StallFabric implements ModInitializer
             int owed = shops.tokensOwed(handler.player.getUUID());
             if (owed > 0)
             {
-                handler.player.sendSystemMessage(FabricShops.text((owed == 1 ? "A Stall token is" : owed + " Stall tokens are")
-                        + " waiting for you from removed shops. Use /stall reclaim to collect.", ChatFormatting.YELLOW));
+                FabricText.send(handler.player, shops.lang().chat(
+                        owed == 1 ? "shops.join-reclaim-one" : "shops.join-reclaim-many",
+                        "count", String.valueOf(owed)));
             }
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> shops.forget(handler.player.getUUID()));

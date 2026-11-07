@@ -1,10 +1,14 @@
 package codes.castled.stall.paper;
 
+import codes.castled.stall.config.LegacyText;
 import org.bukkit.ChatColor;
+import org.bukkit.command.CommandSender;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -60,5 +64,30 @@ final class BukkitItems
     static String text(String text, ChatColor color)
     {
         return ChatColor.RESET.toString() + color + text;
+    }
+
+    /** An item name or lore line: non-italic by default unless {@code &o} is used in the text. */
+    static String itemLine(String text)
+    {
+        return ChatColor.RESET.toString() + text;
+    }
+
+    static List<String> itemLines(List<String> lines)
+    {
+        List<String> formatted = new ArrayList<>(lines.size());
+        for (String line : lines)
+        {
+            formatted.add(itemLine(line));
+        }
+        return formatted;
+    }
+
+    /** Sends {@code message} unless it is empty, so setting a message to {@code ""} in {@code lang.yml} silences it. */
+    static void send(CommandSender recipient, String message)
+    {
+        if (message != null && !message.isEmpty())
+        {
+            recipient.sendMessage(message);
+        }
     }
 }

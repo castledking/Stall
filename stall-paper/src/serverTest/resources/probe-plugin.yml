@@ -1,6 +1,6 @@
 name: StallServerTestProbe
 version: '1'
 main: codes.castled.stall.test.ServerTestProbe
-api-version: '26.3'
+api-version: '26.1'
 folia-supported: true
 depend: [Stall]

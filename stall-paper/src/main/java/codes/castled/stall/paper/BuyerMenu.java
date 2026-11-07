@@ -1,5 +1,6 @@
 package codes.castled.stall.paper;
 
+import codes.castled.stall.config.StallLang;
 import codes.castled.stall.menu.ShopMenuLayout;
 import codes.castled.stall.offer.Offer;
 import codes.castled.stall.offer.OfferItem;
@@ -32,7 +33,7 @@ final class BuyerMenu extends StallMenu
     BuyerMenu(PaperShops shops, Player viewer, Shop<ItemStack> shop)
     {
         super(shops, viewer, shop, ShopMenuLayout.buyerRows(shop.completeOffers().size()),
-                BukkitItems.text(shop.ownerName() + "'s Stall"));
+                shops.lang().text("menu.titles.buyer", "owner", shop.ownerName()));
         render();
     }
 
@@ -71,6 +72,7 @@ final class BuyerMenu extends StallMenu
         beginRender();
         rowOffers.clear();
 
+        StallLang lang = shops.lang();
         TradePlanner<ItemStack> planner = shops.planner();
         SlotInventory<ItemStack> buyer = PaperShops.buyerSlots(viewer);
         SlotInventory<ItemStack> stock = shops.stock(shop).map(PaperStock::slots).orElse(null);
@@ -85,7 +87,8 @@ final class BuyerMenu extends StallMenu
                 List<OfferItem<ItemStack>> items = offer.side(cost).items();
                 for (int i = 0; i < items.size(); i++)
                 {
-                    inventory.setItem(ShopMenuLayout.itemSlot(row, cost, i), MenuItems.offerItem(items.get(i), cost));
+                    inventory.setItem(ShopMenuLayout.itemSlot(row, cost, i),
+                            MenuItems.offerItem(lang, items.get(i), cost));
                 }
             }
             OfferStatus status = stock == null ? OfferStatus.UNAVAILABLE : planner.status(offer, buyer, stock);
@@ -96,8 +99,8 @@ final class BuyerMenu extends StallMenu
                 case CANNOT_AFFORD -> planner.missingPayment(offer, buyer);
                 default -> List.of();
             };
-            inventory.setItem(ShopMenuLayout.statusSlot(row), MenuItems.status(status, inStock, missing));
-            inventory.setItem(ShopMenuLayout.buySlot(row), MenuItems.buyButton(status));
+            inventory.setItem(ShopMenuLayout.statusSlot(row), MenuItems.status(lang, status, inStock, missing));
+            inventory.setItem(ShopMenuLayout.buySlot(row), MenuItems.buyButton(lang, status));
         }
     }
 }

@@ -24,6 +24,15 @@ public final class RemoveConfirmation
     /** Records a press on {@code offerId}'s button at {@code tick}; returns whether it confirms the removal. */
     public boolean press(UUID offerId, long tick)
     {
+        return press(offerId, tick, MIN_GAP_TICKS);
+    }
+
+    /**
+     * Records a press on {@code offerId}'s button at {@code tick}; returns whether it confirms the removal
+     * after at least {@code minGapTicks} since the arming press.
+     */
+    public boolean press(UUID offerId, long tick, long minGapTicks)
+    {
         if (!isArmed(offerId, tick))
         {
             armedOffer = offerId;
@@ -32,7 +41,7 @@ public final class RemoveConfirmation
         }
         long gap = tick - lastPress;
         lastPress = tick;
-        if (gap < MIN_GAP_TICKS)
+        if (gap < Math.max(0, minGapTicks))
         {
             return false;
         }

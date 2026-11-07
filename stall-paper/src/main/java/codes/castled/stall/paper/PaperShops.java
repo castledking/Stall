@@ -1,5 +1,7 @@
 package codes.castled.stall.paper;
 
+import codes.castled.stall.config.StallConfig;
+import codes.castled.stall.config.StallLang;
 import codes.castled.stall.menu.OfferEditor;
 import codes.castled.stall.offer.Offer;
 import codes.castled.stall.shop.Shop;
@@ -17,7 +19,6 @@ import codes.castled.stall.trade.SlotChange;
 import codes.castled.stall.trade.SlotInventory;
 import codes.castled.stall.trade.TradePlan;
 import codes.castled.stall.trade.TradePlanner;
-import org.bukkit.ChatColor;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.NamespacedKey;
@@ -67,6 +68,8 @@ final class PaperShops
     private final Set<UUID> buyerPreview = ConcurrentHashMap.newKeySet();
     /** Large barrels' 54-slot stock views, by viewer. */
     private final Map<UUID, StockView> stockViews = new ConcurrentHashMap<>();
+    private volatile StallConfig config = StallConfig.defaults();
+    private volatile StallLang lang = StallLang.defaults();
     private ShopPersistence<ItemStack> persistence;
     private PaperExtraStock extraStock;
     private final AtomicLong currentTick = new AtomicLong();
@@ -79,6 +82,45 @@ final class PaperShops
     }
 
     SchedulerFacade scheduler() { return scheduler; }
+
+    StallConfig config() { return config; }
+
+    StallLang lang() { return lang; }
+
+    /** Loads or reloads {@code config.yml} and {@code lang.yml} from the plugin's folder. */
+    void reloadConfig()
+    {
+        Path folder = plugin.getDataFolder().toPath();
+        StoreLog log = storeLog();
+        this.config = StallConfig.load(folder, log);
+        this.lang = StallLang.load(folder, log);
+        refreshOpenMenus();
+    }
+
+    private StoreLog storeLog()
+    {
+        return new StoreLog()
+        {
+            @Override
+            public void info(String message)
+            {
+                plugin.getLogger().info(message);
+            }
+
+            @Override
+            public void warn(String message, Throwable error)
+            {
+                if (error == null)
+                {
+                    plugin.getLogger().warning(message);
+                }
+                else
+                {
+                    plugin.getLogger().log(Level.WARNING, message, error);
+                }
+            }
+        };
+    }
 
     /** A trade may touch both inventories only while this thread owns the player and the shop chunk. */
     boolean canAccess(Player player, Shop<ItemStack> shop)
@@ -145,7 +187,7 @@ final class PaperShops
     {
         long tick = currentTick.incrementAndGet();
         if (tick % 5 == 0) closeInvalidMenus();
-        if (tick % 20 == 0) refreshOpenMenus();
+        if (tick % config.menuRefreshTicks() == 0) refreshOpenMenus();
         if (tick % 200 == 0) sweep();
     }
 
@@ -162,6 +204,7 @@ final class PaperShops
      */
     void startStorage()
     {
+        reloadConfig();
         Path directory = levelDirectory().resolve("stall");
         PaperItemCodec items = new PaperItemCodec();
         extraStock = new PaperExtraStock(plugin, items);
@@ -170,20 +213,7 @@ final class PaperShops
             plugin.getLogger().log(Level.WARNING, "Large barrels are unavailable on this server: their owners can't "
                     + "open the extra slots. Trades still use them.", CombinedInventories.failure());
         }
-        persistence = new ShopPersistence<>(directory, items, new StoreLog()
-        {
-            @Override
-            public void info(String message)
-            {
-                plugin.getLogger().info(message);
-            }
-
-            @Override
-            public void warn(String message, Throwable error)
-            {
-                plugin.getLogger().log(Level.WARNING, message, error);
-            }
-        });
+        persistence = new ShopPersistence<>(directory, items, storeLog());
         ShopPersistence.LoadReport report = persistence.load(registry, tokenReturns);
         plugin.getLogger().info("Loaded " + report.shops() + " shop(s) from " + directory + ".");
         if (report.quarantined() > 0 || report.fromNewerVersion() > 0)
@@ -274,8 +304,7 @@ final class PaperShops
         PaperMarkers.stamp(block, shop);
         shop.setContainer(PaperContainers.id(block));
         save(shop);
-        player.sendMessage(BukkitItems.text("This shop was paused because its " + PaperContainers.describe(block)
-                + " lost its Stall marker. It's open again.", ChatColor.GREEN));
+        BukkitItems.send(player, lang.chat("shops.reactivated", "container", lang.container(shop.container())));
         scheduler.laterEntity(player, () ->
         {
             if (player.isOnline() && registry.isCurrent(shop))
@@ -381,14 +410,16 @@ final class PaperShops
         return true;
     }
 
-    static int shopLimit(Permissible player)
+    int shopLimit(Permissible player)
     {
-        return ShopLimits.limitFor(path -> player.hasPermission("stall." + path));
+        StallConfig current = config;
+        return ShopLimits.limitFor(path -> player.hasPermission("stall." + path),
+                current.defaultShopLimit(), current.maxLimitTier());
     }
 
-    static String describeLimit(int limit)
+    String describeLimit(int limit)
     {
-        return limit == ShopLimits.UNLIMITED ? "no limit" : String.valueOf(limit);
+        return lang.limit(limit);
     }
 
     // --- Making and removing shops ----------------------------------------------------------------
@@ -400,35 +431,54 @@ final class PaperShops
     void create(Player player, Block block)
     {
         if (!FoliaSupport.owns(player) || !FoliaSupport.owns(block.getWorld(), block.getX() >> 4, block.getZ() >> 4)) return;
+        StallConfig current = config;
+        StallLang messages = lang;
         if (!player.hasPermission("stall.create"))
         {
-            player.sendMessage(BukkitItems.text("You don't have permission to make shops.", ChatColor.RED));
+            BukkitItems.send(player, messages.chat("shops.no-create-permission"));
+            return;
+        }
+        if (current.isWorldDisabled(block.getWorld().getKey().toString(), block.getWorld().getName()))
+        {
+            BukkitItems.send(player, messages.chat("shops.disabled-world"));
+            return;
+        }
+        String containerId = PaperContainers.id(block);
+        String name = messages.container(containerId);
+        if (!current.isContainerAllowed(containerId))
+        {
+            BukkitItems.send(player, messages.chat("shops.container-disabled", "container", name));
+            return;
+        }
+        if (PaperContainers.connected(block).isPresent() && !current.doubleChestsAllowed())
+        {
+            BukkitItems.send(player, messages.chat("shops.double-chest-disabled"));
             return;
         }
         int limit = shopLimit(player);
         long owned = registry.countOwnedBy(player.getUniqueId());
         if (owned >= limit)
         {
-            player.sendMessage(BukkitItems.text(limit == 0
-                    ? "You can't own shops."
-                    : "You already own " + owned + " of your " + limit + " shops. Remove one first.", ChatColor.RED));
+            BukkitItems.send(player, limit == 0
+                    ? messages.chat("shops.cannot-own")
+                    : messages.chat("shops.limit-reached",
+                            "owned", String.valueOf(owned), "limit", String.valueOf(limit)));
             return;
         }
-        String name = PaperContainers.describe(block);
         if (PaperContainers.inventory(block).isEmpty())
         {
-            player.sendMessage(BukkitItems.text("Both halves of this chest must be available before it can become a shop.", ChatColor.RED));
+            BukkitItems.send(player, messages.chat("shops.chest-half-unavailable"));
             return;
         }
         if (PaperContainers.hasUnopenedLoot(block))
         {
-            player.sendMessage(BukkitItems.text("This " + name + " still holds unopened loot. Open it first.", ChatColor.RED));
+            BukkitItems.send(player, messages.chat("shops.unopened-loot", "container", name));
             return;
         }
 
-        boolean consumed = player.getGameMode() != GameMode.CREATIVE;
+        boolean consumed = player.getGameMode() != GameMode.CREATIVE || current.consumeTokenInCreative();
         Shop<ItemStack> shop = new Shop<>(UUID.randomUUID(), player.getUniqueId(), player.getName(), locate(block), consumed);
-        shop.setContainer(PaperContainers.id(block));
+        shop.setContainer(containerId);
         boolean large = grantLargeStock(player, shop, block);
         registry.add(shop);
         PaperMarkers.stamp(block, shop);
@@ -439,8 +489,7 @@ final class PaperShops
             token.setAmount(token.getAmount() - 1);
             player.getInventory().setItemInMainHand(token.getAmount() > 0 ? token : null);
         }
-        player.sendMessage(BukkitItems.text("This " + name + " is now your shop" + (large ? ", with 54 slots of stock" : "")
-                + ". Set up its offers here; sneak and right-click it with an empty hand to come back.", ChatColor.GREEN));
+        BukkitItems.send(player, messages.chat(large ? "shops.created-large" : "shops.created", "container", name));
         // Opening an inventory from the interact event itself is fine, but wait a tick so the click is done.
         scheduler.laterEntity(player, () ->
         {
@@ -496,7 +545,7 @@ final class PaperShops
         boolean byOwner = actor != null && shop.isOwner(actor.getUniqueId());
         if (broken != null && byOwner)
         {
-            broken.getWorld().dropItemNaturally(broken.getLocation().add(0.5, 0.5, 0.5), PaperTokens.create(1));
+            broken.getWorld().dropItemNaturally(broken.getLocation().add(0.5, 0.5, 0.5), createToken(1));
             return TokenReturn.DROPPED;
         }
         Player owner = Bukkit.getPlayer(shop.owner());
@@ -524,26 +573,30 @@ final class PaperShops
                     if (!tokenReturns.claimOne(shop.owner())) return;
                     saveReturns();
                 }
-                give(owner, PaperTokens.create(1));
-                owner.sendMessage(BukkitItems.text("Your shop was removed. Its token is back in your inventory.", ChatColor.YELLOW));
+                give(owner, createToken(1));
+                BukkitItems.send(owner, lang.chat("shops.removed-notify", "location", shop.location().toString()));
             });
             return TokenReturn.OWED;
         }
-        give(owner, PaperTokens.create(1));
+        give(owner, createToken(1));
         if (!byOwner)
         {
-            owner.sendMessage(BukkitItems.text("Your shop at " + shop.location() + " was removed. Its token is back in "
-                    + "your inventory.", ChatColor.YELLOW));
+            BukkitItems.send(owner, lang.chat("shops.removed-at-notify", "location", shop.location().toString()));
         }
         return TokenReturn.GIVEN;
     }
 
+    ItemStack createToken(int count)
+    {
+        return PaperTokens.create(count, config, lang);
+    }
+
     /** Gives {@code count} tokens, a stack at a time. */
-    static void giveTokens(Player player, int count)
+    void giveTokens(Player player, int count)
     {
         for (int left = count; left > 0; left -= Tokens.MAX_PER_COMMAND)
         {
-            give(player, PaperTokens.create(Math.min(left, Tokens.MAX_PER_COMMAND)));
+            give(player, createToken(Math.min(left, Tokens.MAX_PER_COMMAND)));
         }
     }
 
@@ -721,7 +774,9 @@ final class PaperShops
     void buy(BuyerMenu menu, UUID offerId)
     {
         Player player = menu.viewer();
-        if (!throttle.tryAcquire(player.getUniqueId(), currentTick()))
+        StallConfig current = config;
+        StallLang messages = lang;
+        if (!throttle.tryAcquire(player.getUniqueId(), currentTick(), current.buyCooldownTicks()))
         {
             return;
         }
@@ -734,7 +789,7 @@ final class PaperShops
         if (menu.revision() != shop.revision())
         {
             menu.render();
-            player.sendMessage(BukkitItems.text("This shop just changed. Check its offers again.", ChatColor.YELLOW));
+            BukkitItems.send(player, messages.chat("trades.shop-changed"));
             return;
         }
         Optional<Offer<ItemStack>> offer = shop.offer(offerId);
@@ -748,7 +803,7 @@ final class PaperShops
         switch (plan)
         {
             case TradePlan.Failure<ItemStack> failure ->
-                    player.sendMessage(BukkitItems.text(failure.reason().message(), ChatColor.RED));
+                    BukkitItems.send(player, messages.tradeFailure(failure.reason()));
             case TradePlan.Success<ItemStack> success ->
             {
                 commit(player.getInventory(), success.buyerChanges());
@@ -758,7 +813,24 @@ final class PaperShops
                     extraStock.markDirty(shop);
                     block(shop).ifPresent(barrel -> extraStock.flush(shop, barrel));
                 }
-                player.sendMessage(BukkitItems.text("Trade complete.", ChatColor.GREEN));
+                BukkitItems.send(player, messages.chat("trades.complete"));
+                if (current.notifyOwnerOnSale() && !shop.isOwner(player.getUniqueId()))
+                {
+                    Player owner = Bukkit.getPlayer(shop.owner());
+                    if (owner != null)
+                    {
+                        String buyerName = player.getName();
+                        String location = shop.location().toString();
+                        scheduler.entity(owner, () ->
+                        {
+                            if (owner.isOnline())
+                            {
+                                BukkitItems.send(owner, lang.chat("trades.owner-sold",
+                                        "buyer", buyerName, "location", location));
+                            }
+                        });
+                    }
+                }
             }
         }
         refresh(shop);
@@ -805,8 +877,8 @@ final class PaperShops
      */
     boolean grantLargeStock(Player owner, Shop<ItemStack> shop, Block block)
     {
-        if (!shop.largeStock() && PaperContainers.isBarrel(block) && CombinedInventories.available()
-                && owner.hasPermission("stall.barrel.large"))
+        if (!shop.largeStock() && config.largeBarrelsAllowed() && PaperContainers.isBarrel(block)
+                && CombinedInventories.available() && owner.hasPermission("stall.barrel.large"))
         {
             shop.enableLargeStock();
             save(shop);
@@ -831,8 +903,7 @@ final class PaperShops
         Optional<Inventory> own = PaperContainers.inventory(barrel);
         if (extra == null || own.isEmpty())
         {
-            player.sendMessage(BukkitItems.text("This shop's extra slots were saved by a newer version of Stall, so "
-                    + "they can't be opened here.", ChatColor.RED));
+            BukkitItems.send(player, lang.chat("shops.extra-slots-newer"));
             return false;
         }
         Inventory combined = CombinedInventories.of(own.get(), extra);
@@ -842,7 +913,7 @@ final class PaperShops
         {
             return false;
         }
-        view.setTitle("Large Barrel");
+        view.setTitle(lang.text("menu.titles.large-barrel", "owner", shop.ownerName()));
         stockViews.put(player.getUniqueId(), new StockView(shop, combined));
         return true;
     }

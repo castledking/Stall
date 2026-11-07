@@ -1,5 +1,6 @@
 package codes.castled.stall.fabric;
 
+import codes.castled.stall.config.StallLang;
 import codes.castled.stall.menu.MenuClick;
 import codes.castled.stall.menu.RemoveConfirmation;
 import codes.castled.stall.menu.ShopMenuLayout;
@@ -32,14 +33,15 @@ final class OwnerMenu extends StallMenu
 
     OwnerMenu(int containerId, ServerPlayer viewer, Shop<ItemStack> shop, ItemStack carried, FabricShops shops)
     {
-        super(containerId, viewer, shop, ShopMenuLayout.ownerRows(shop.offers().size()), carried, shops);
+        super(containerId, viewer, shop, ShopMenuLayout.ownerRows(shop.offers().size(), shops.config().maxOffers()),
+                carried, shops);
         render();
     }
 
     @Override
     int wantedRows()
     {
-        return ShopMenuLayout.ownerRows(shop.offers().size());
+        return ShopMenuLayout.ownerRows(shop.offers().size(), shops.config().maxOffers());
     }
 
     @Override
@@ -76,7 +78,8 @@ final class OwnerMenu extends StallMenu
             {
                 removal.reset();
                 boolean cost = role.role() == ShopMenuLayout.Role.COST;
-                if (shops.editor().click(shop, role.row(), cost, role.index(), click, getCarried()))
+                if (shops.editor().click(shop, role.row(), cost, role.index(), click, getCarried(),
+                        shops.config().maxOffers()))
                 {
                     shops.edited(shop);
                 }
@@ -101,7 +104,7 @@ final class OwnerMenu extends StallMenu
             render();
             return;
         }
-        if (removal.press(shop.offers().get(row).id(), tick()))
+        if (removal.press(shop.offers().get(row).id(), tick(), shops.config().offerRemoveCooldownTicks()))
         {
             shop.removeOffer(row);
             shops.edited(shop);
@@ -116,6 +119,7 @@ final class OwnerMenu extends StallMenu
     void render()
     {
         beginRender();
+        StallLang lang = shops.lang();
         TradePlanner<ItemStack> planner = shops.planner();
         SlotInventory<ItemStack> stock = shops.stock(viewer.level(), shop).map(FabricShops::stockSlots).orElse(null);
         long tick = tick();
@@ -126,29 +130,30 @@ final class OwnerMenu extends StallMenu
             if (row < offers.size())
             {
                 Offer<ItemStack> offer = offers.get(row);
-                display.setItem(ShopMenuLayout.removeSlot(row), MenuItems.removeButton(removal.isArmed(offer.id(), tick)));
-                drawItems(row, offer.costs(), true);
-                drawItems(row, offer.rewards(), false);
+                display.setItem(ShopMenuLayout.removeSlot(row),
+                        MenuItems.removeButton(lang, removal.isArmed(offer.id(), tick)));
+                drawItems(lang, row, offer.costs(), true);
+                drawItems(lang, row, offer.rewards(), false);
                 int inStock = stock == null || !offer.isComplete() ? 0 : planner.timesInStock(offer, stock);
-                display.setItem(ShopMenuLayout.statusSlot(row), MenuItems.ownerStatus(offer.isComplete(), inStock,
-                        stock == null ? List.of() : planner.missingStock(offer, stock)));
+                display.setItem(ShopMenuLayout.statusSlot(row), MenuItems.ownerStatus(lang, offer.isComplete(),
+                        inStock, stock == null ? List.of() : planner.missingStock(offer, stock)));
             }
-            else if (row == offers.size())
+            else if (row == offers.size() && offers.size() < shops.config().maxOffers())
             {
-                drawItems(row, OfferSlots.empty(true), true);
-                drawItems(row, OfferSlots.empty(false), false);
-                display.setItem(ShopMenuLayout.statusSlot(row), MenuItems.newOffer());
+                drawItems(lang, row, OfferSlots.empty(true), true);
+                drawItems(lang, row, OfferSlots.empty(false), false);
+                display.setItem(ShopMenuLayout.statusSlot(row), MenuItems.newOffer(lang));
             }
         }
     }
 
-    private void drawItems(int row, OfferSlots<ItemStack> side, boolean cost)
+    private void drawItems(StallLang lang, int row, OfferSlots<ItemStack> side, boolean cost)
     {
         for (int i = 0; i < side.size(); i++)
         {
             OfferItem<ItemStack> item = side.get(i);
             display.setItem(ShopMenuLayout.itemSlot(row, cost, i),
-                    item == null ? MenuItems.emptyOfferSlot(cost) : MenuItems.editableOfferItem(item, cost));
+                    item == null ? MenuItems.emptyOfferSlot(lang, cost) : MenuItems.editableOfferItem(lang, item, cost));
         }
     }
 }

@@ -1,10 +1,11 @@
 package codes.castled.stall.fabric;
 
+import codes.castled.stall.config.StallConfig;
+import codes.castled.stall.config.StallLang;
 import codes.castled.stall.menu.OfferEditor;
 import codes.castled.stall.offer.Offer;
 import codes.castled.stall.shop.Shop;
 import codes.castled.stall.shop.ShopAnchor;
-import codes.castled.stall.shop.ShopLimits;
 import codes.castled.stall.shop.ShopLocation;
 import codes.castled.stall.shop.ShopRegistry;
 import codes.castled.stall.shop.ShopViewers;
@@ -18,7 +19,7 @@ import codes.castled.stall.trade.SlotChange;
 import codes.castled.stall.trade.SlotInventory;
 import codes.castled.stall.trade.TradePlan;
 import codes.castled.stall.trade.TradePlanner;
-import net.minecraft.ChatFormatting;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -76,12 +77,59 @@ final class FabricShops
     private final Logger logger;
     /** Large barrels' extra slots, one per barrel, shared by the owner's view and by trades. */
     private final Map<BlockEntity, ExtraStock> extraStocks = new HashMap<>();
+    private volatile StallConfig config = StallConfig.defaults();
+    private volatile StallLang lang = StallLang.defaults();
     private ShopPersistence<ItemStack> persistence;
     private StockCodec<ItemStack> stockCodec;
 
     FabricShops(Logger logger)
     {
         this.logger = logger;
+    }
+
+    StallConfig config()
+    {
+        return config;
+    }
+
+    StallLang lang()
+    {
+        return lang;
+    }
+
+    /** Loads or reloads {@code config.yml} and {@code lang.yml} from {@code config/stall/}. */
+    void reloadConfig()
+    {
+        Path folder = FabricLoader.getInstance().getConfigDir().resolve("stall");
+        StoreLog log = storeLog();
+        this.config = StallConfig.load(folder, log);
+        this.lang = StallLang.load(folder, log);
+        refreshOpenMenus();
+    }
+
+    private StoreLog storeLog()
+    {
+        return new StoreLog()
+        {
+            @Override
+            public void info(String message)
+            {
+                logger.info(message);
+            }
+
+            @Override
+            public void warn(String message, Throwable error)
+            {
+                if (error == null)
+                {
+                    logger.warn(message);
+                }
+                else
+                {
+                    logger.warn(message, error);
+                }
+            }
+        };
     }
 
     ShopRegistry<ItemStack> registry()
@@ -198,23 +246,11 @@ final class FabricShops
      */
     void startStorage(MinecraftServer server)
     {
+        reloadConfig();
         Path directory = server.getWorldPath(LevelResource.ROOT).resolve("stall").toAbsolutePath().normalize();
         FabricItemCodec items = new FabricItemCodec(server.registryAccess());
         stockCodec = new StockCodec<>(items, FabricStackRules.INSTANCE);
-        persistence = new ShopPersistence<>(directory, items, new StoreLog()
-        {
-            @Override
-            public void info(String message)
-            {
-                logger.info(message);
-            }
-
-            @Override
-            public void warn(String message, Throwable error)
-            {
-                logger.warn(message, error);
-            }
-        });
+        persistence = new ShopPersistence<>(directory, items, storeLog());
         ShopPersistence.LoadReport report = persistence.load(registry, tokenReturns);
         logger.info("Loaded {} shop(s) from {}.", report.shops(), directory);
         if (report.quarantined() > 0 || report.fromNewerVersion() > 0)
@@ -344,8 +380,7 @@ final class FabricShops
         ShopMarkers.stamp(anchor.get(), shop);
         shop.setContainer(FabricContainers.id(state));
         save(shop);
-        player.sendSystemMessage(text("This shop was paused because its " + FabricContainers.describe(state)
-                + " lost its Stall marker. It's open again.", ChatFormatting.GREEN));
+        FabricText.send(player, lang.chat("shops.reactivated", "container", lang.container(shop.container())));
         openOwnerMenu(player, shop);
     }
 
@@ -363,36 +398,55 @@ final class FabricShops
         {
             return;
         }
-        String name = FabricContainers.describe(state);
-        if (FabricContainers.container(level, pos).isEmpty())
-        {
-            player.sendSystemMessage(text("Both halves of this chest must be available before it can become a shop.", ChatFormatting.RED));
-            return;
-        }
+        StallConfig current = config;
+        StallLang messages = lang;
         if (!StallPermissions.has(player, StallPermissions.CREATE))
         {
-            player.sendSystemMessage(text("You don't have permission to make shops.", ChatFormatting.RED));
+            FabricText.send(player, messages.chat("shops.no-create-permission"));
             return;
         }
-        int limit = StallPermissions.shopLimit(player);
+        if (current.isWorldDisabled(level.dimension().identifier().toString()))
+        {
+            FabricText.send(player, messages.chat("shops.disabled-world"));
+            return;
+        }
+        String containerId = FabricContainers.id(state);
+        String name = messages.container(containerId);
+        if (!current.isContainerAllowed(containerId))
+        {
+            FabricText.send(player, messages.chat("shops.container-disabled", "container", name));
+            return;
+        }
+        if (FabricContainers.connected(pos, state).isPresent() && !current.doubleChestsAllowed())
+        {
+            FabricText.send(player, messages.chat("shops.double-chest-disabled"));
+            return;
+        }
+        if (FabricContainers.container(level, pos).isEmpty())
+        {
+            FabricText.send(player, messages.chat("shops.chest-half-unavailable"));
+            return;
+        }
+        int limit = StallPermissions.shopLimit(player, current);
         long owned = registry.countOwnedBy(player.getUUID());
         if (owned >= limit)
         {
-            player.sendSystemMessage(text(limit == 0
-                    ? "You can't own shops."
-                    : "You already own " + owned + " of your " + limit + " shops. Remove one first.", ChatFormatting.RED));
+            FabricText.send(player, limit == 0
+                    ? messages.chat("shops.cannot-own")
+                    : messages.chat("shops.limit-reached",
+                            "owned", String.valueOf(owned), "limit", String.valueOf(limit)));
             return;
         }
         if (FabricContainers.hasUnopenedLoot(level, pos))
         {
-            player.sendSystemMessage(text("This " + name + " still holds unopened loot. Open it first.", ChatFormatting.RED));
+            FabricText.send(player, messages.chat("shops.unopened-loot", "container", name));
             return;
         }
 
-        boolean consumed = !player.hasInfiniteMaterials();
+        boolean consumed = !player.hasInfiniteMaterials() || current.consumeTokenInCreative();
         Shop<ItemStack> shop = new Shop<>(UUID.randomUUID(), player.getUUID(), player.getPlainTextName(),
                 locate(level, pos), consumed);
-        shop.setContainer(FabricContainers.id(state));
+        shop.setContainer(containerId);
         boolean large = grantLargeStock(player, shop, state);
         registry.add(shop);
         ShopMarkers.stamp(container, shop);
@@ -401,8 +455,7 @@ final class FabricShops
         {
             token.shrink(1);
         }
-        player.sendSystemMessage(text("This " + name + " is now your shop" + (large ? ", with 54 slots of stock" : "")
-                + ". Set up its offers here; sneak and right-click it with an empty hand to come back.", ChatFormatting.GREEN));
+        FabricText.send(player, messages.chat(large ? "shops.created-large" : "shops.created", "container", name));
         openOwnerMenu(player, shop);
     }
 
@@ -457,7 +510,7 @@ final class FabricShops
         boolean byOwner = actor != null && shop.isOwner(actor.getUUID());
         if (broken != null && byOwner)
         {
-            Block.popResource(actor.level(), broken, FabricTokens.create(1));
+            Block.popResource(actor.level(), broken, createToken(1));
             return TokenReturn.DROPPED;
         }
         ServerPlayer owner = server.getPlayerList().getPlayer(shop.owner());
@@ -467,21 +520,25 @@ final class FabricShops
             saveReturns();
             return TokenReturn.OWED;
         }
-        give(owner, FabricTokens.create(1));
+        give(owner, createToken(1));
         if (!byOwner)
         {
-            owner.sendSystemMessage(text("Your shop at " + shop.location() + " was removed. Its token is back in "
-                    + "your inventory.", ChatFormatting.YELLOW));
+            FabricText.send(owner, lang.chat("shops.removed-at-notify", "location", shop.location().toString()));
         }
         return TokenReturn.GIVEN;
     }
 
+    ItemStack createToken(int count)
+    {
+        return FabricTokens.create(count, config, lang);
+    }
+
     /** Gives {@code count} tokens, a stack at a time. */
-    static void giveTokens(ServerPlayer player, int count)
+    void giveTokens(ServerPlayer player, int count)
     {
         for (int left = count; left > 0; left -= Tokens.MAX_PER_COMMAND)
         {
-            give(player, FabricTokens.create(Math.min(left, Tokens.MAX_PER_COMMAND)));
+            give(player, createToken(Math.min(left, Tokens.MAX_PER_COMMAND)));
         }
     }
 
@@ -513,9 +570,9 @@ final class FabricShops
         return registry.countOwnedBy(player);
     }
 
-    static String describeLimit(int limit)
+    String describeLimit(int limit)
     {
-        return limit == ShopLimits.UNLIMITED ? "no limit" : String.valueOf(limit);
+        return lang.limit(limit);
     }
 
     // --- Menus --------------------------------------------------------------------------------------
@@ -535,7 +592,8 @@ final class FabricShops
         IntFunction<StallMenu> factory = owner
                 ? containerId -> new OwnerMenu(containerId, player, shop, carried, this)
                 : containerId -> new BuyerMenu(containerId, player, shop, carried, this);
-        Component title = Component.literal(owner ? "Edit " + shop.ownerName() + "'s Stall" : shop.ownerName() + "'s Stall");
+        Component title = FabricText.chat(lang.text(
+                owner ? "menu.titles.owner" : "menu.titles.buyer", "owner", shop.ownerName()));
         player.openMenu(new SimpleMenuProvider((containerId, inventory, opener) -> factory.apply(containerId), title));
         if (player.containerMenu instanceof StallMenu menu && menu.shop() == shop)
         {
@@ -654,7 +712,9 @@ final class FabricShops
     {
         ServerPlayer player = menu.viewer();
         ServerLevel level = player.level();
-        if (!throttle.tryAcquire(player.getUUID(), level.getServer().getTickCount()))
+        StallConfig current = config;
+        StallLang messages = lang;
+        if (!throttle.tryAcquire(player.getUUID(), level.getServer().getTickCount(), current.buyCooldownTicks()))
         {
             return;
         }
@@ -667,7 +727,7 @@ final class FabricShops
         if (menu.revision() != shop.revision())
         {
             menu.render();
-            player.sendSystemMessage(text("This shop just changed. Check its offers again.", ChatFormatting.YELLOW));
+            FabricText.send(player, messages.chat("trades.shop-changed"));
             return;
         }
         Optional<Offer<ItemStack>> offer = shop.offer(offerId);
@@ -681,12 +741,22 @@ final class FabricShops
         switch (plan)
         {
             case TradePlan.Failure<ItemStack> failure ->
-                    player.sendSystemMessage(text(failure.reason().message(), ChatFormatting.RED));
+                    FabricText.send(player, messages.tradeFailure(failure.reason()));
             case TradePlan.Success<ItemStack> success ->
             {
                 commit(player.getInventory(), success.buyerChanges());
                 commit(stock.get(), success.stockChanges());
-                player.sendSystemMessage(text("Trade complete.", ChatFormatting.GREEN));
+                FabricText.send(player, messages.chat("trades.complete"));
+                if (current.notifyOwnerOnSale() && !shop.isOwner(player.getUUID()))
+                {
+                    ServerPlayer owner = level.getServer().getPlayerList().getPlayer(shop.owner());
+                    if (owner != null)
+                    {
+                        FabricText.send(owner, messages.chat("trades.owner-sold",
+                                "buyer", player.getPlainTextName(),
+                                "location", shop.location().toString()));
+                    }
+                }
             }
         }
         refresh(shop);
@@ -723,11 +793,6 @@ final class FabricShops
         container.setChanged();
     }
 
-    static Component text(String message, ChatFormatting color)
-    {
-        return Component.literal(message).withStyle(color);
-    }
-
     // --- Large barrels ------------------------------------------------------------------------------
 
     /** The extra slots of a large barrel, read from the barrel the first time they're needed. */
@@ -749,7 +814,8 @@ final class FabricShops
      */
     boolean grantLargeStock(ServerPlayer owner, Shop<ItemStack> shop, BlockState state)
     {
-        if (!shop.largeStock() && FabricContainers.isBarrel(state) && StallPermissions.has(owner, StallPermissions.LARGE_BARREL))
+        if (!shop.largeStock() && config.largeBarrelsAllowed() && FabricContainers.isBarrel(state)
+                && StallPermissions.has(owner, StallPermissions.LARGE_BARREL))
         {
             shop.enableLargeStock();
             save(shop);
@@ -773,13 +839,12 @@ final class FabricShops
         ExtraStock extra = extraStock(shop, anchor.get());
         if (!extra.isReadable())
         {
-            player.sendSystemMessage(text("This shop's extra slots were saved by a newer version of Stall, so they "
-                    + "can't be opened here.", ChatFormatting.RED));
+            FabricText.send(player, lang.chat("shops.extra-slots-newer"));
             return false;
         }
         Container both = new CompoundContainer(barrel, extra);
         player.openMenu(new SimpleMenuProvider((containerId, inventory, opener) -> ChestMenu.sixRows(containerId, inventory, both),
-                Component.literal("Large Barrel")));
+                FabricText.chat(lang.text("menu.titles.large-barrel", "owner", shop.ownerName()))));
         return true;
     }
 

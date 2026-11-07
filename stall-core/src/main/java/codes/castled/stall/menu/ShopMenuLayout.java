@@ -63,7 +63,14 @@ public final class ShopMenuLayout
     /** Rows the owner menu needs for {@code offerCount} offers: one each, plus an empty row unless the shop is full. */
     public static int ownerRows(int offerCount)
     {
-        return Math.min(offerCount + 1, Shop.MAX_OFFERS);
+        return ownerRows(offerCount, Shop.MAX_OFFERS);
+    }
+
+    /** Rows the owner menu needs for {@code offerCount} offers when a shop holds at most {@code maxOffers}. */
+    public static int ownerRows(int offerCount, int maxOffers)
+    {
+        int cap = Math.clamp(maxOffers, 1, Shop.MAX_OFFERS);
+        return Math.clamp(offerCount < cap ? offerCount + 1 : offerCount, 1, Shop.MAX_OFFERS);
     }
 
     public static int removeSlot(int row)

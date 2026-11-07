@@ -1,5 +1,6 @@
 package codes.castled.stall.paper;
 
+import codes.castled.stall.config.StallLang;
 import codes.castled.stall.menu.MenuClick;
 import codes.castled.stall.menu.RemoveConfirmation;
 import codes.castled.stall.menu.ShopMenuLayout;
@@ -31,15 +32,15 @@ final class OwnerMenu extends StallMenu
 
     OwnerMenu(PaperShops shops, Player viewer, Shop<ItemStack> shop)
     {
-        super(shops, viewer, shop, ShopMenuLayout.ownerRows(shop.offers().size()),
-                BukkitItems.text("Edit " + shop.ownerName() + "'s Stall"));
+        super(shops, viewer, shop, ShopMenuLayout.ownerRows(shop.offers().size(), shops.config().maxOffers()),
+                shops.lang().text("menu.titles.owner", "owner", shop.ownerName()));
         render();
     }
 
     @Override
     int wantedRows()
     {
-        return ShopMenuLayout.ownerRows(shop.offers().size());
+        return ShopMenuLayout.ownerRows(shop.offers().size(), shops.config().maxOffers());
     }
 
     @Override
@@ -82,7 +83,8 @@ final class OwnerMenu extends StallMenu
             {
                 removal.reset();
                 boolean cost = role.role() == ShopMenuLayout.Role.COST;
-                if (shops.editor().click(shop, role.row(), cost, role.index(), click, cursor))
+                if (shops.editor().click(shop, role.row(), cost, role.index(), click, cursor,
+                        shops.config().maxOffers()))
                 {
                     shops.edited(shop);
                 }
@@ -107,7 +109,8 @@ final class OwnerMenu extends StallMenu
             render();
             return;
         }
-        if (removal.press(shop.offers().get(row).id(), shops.currentTick()))
+        if (removal.press(shop.offers().get(row).id(), shops.currentTick(),
+                shops.config().offerRemoveCooldownTicks()))
         {
             shop.removeOffer(row);
             shops.edited(shop);
@@ -122,6 +125,7 @@ final class OwnerMenu extends StallMenu
     void render()
     {
         beginRender();
+        StallLang lang = shops.lang();
         TradePlanner<ItemStack> planner = shops.planner();
         SlotInventory<ItemStack> stock = shops.stock(shop).map(PaperStock::slots).orElse(null);
         long tick = shops.currentTick();
@@ -132,29 +136,30 @@ final class OwnerMenu extends StallMenu
             if (row < offers.size())
             {
                 Offer<ItemStack> offer = offers.get(row);
-                inventory.setItem(ShopMenuLayout.removeSlot(row), MenuItems.removeButton(removal.isArmed(offer.id(), tick)));
-                drawItems(row, offer.costs(), true);
-                drawItems(row, offer.rewards(), false);
+                inventory.setItem(ShopMenuLayout.removeSlot(row),
+                        MenuItems.removeButton(lang, removal.isArmed(offer.id(), tick)));
+                drawItems(lang, row, offer.costs(), true);
+                drawItems(lang, row, offer.rewards(), false);
                 int inStock = stock == null || !offer.isComplete() ? 0 : planner.timesInStock(offer, stock);
-                inventory.setItem(ShopMenuLayout.statusSlot(row), MenuItems.ownerStatus(offer.isComplete(), inStock,
-                        stock == null ? List.of() : planner.missingStock(offer, stock)));
+                inventory.setItem(ShopMenuLayout.statusSlot(row), MenuItems.ownerStatus(lang, offer.isComplete(),
+                        inStock, stock == null ? List.of() : planner.missingStock(offer, stock)));
             }
-            else if (row == offers.size())
+            else if (row == offers.size() && offers.size() < shops.config().maxOffers())
             {
-                drawItems(row, OfferSlots.empty(true), true);
-                drawItems(row, OfferSlots.empty(false), false);
-                inventory.setItem(ShopMenuLayout.statusSlot(row), MenuItems.newOffer());
+                drawItems(lang, row, OfferSlots.empty(true), true);
+                drawItems(lang, row, OfferSlots.empty(false), false);
+                inventory.setItem(ShopMenuLayout.statusSlot(row), MenuItems.newOffer(lang));
             }
         }
     }
 
-    private void drawItems(int row, OfferSlots<ItemStack> side, boolean cost)
+    private void drawItems(StallLang lang, int row, OfferSlots<ItemStack> side, boolean cost)
     {
         for (int i = 0; i < side.size(); i++)
         {
             OfferItem<ItemStack> item = side.get(i);
             inventory.setItem(ShopMenuLayout.itemSlot(row, cost, i),
-                    item == null ? MenuItems.emptyOfferSlot(cost) : MenuItems.editableOfferItem(item, cost));
+                    item == null ? MenuItems.emptyOfferSlot(lang, cost) : MenuItems.editableOfferItem(lang, item, cost));
         }
     }
 }

@@ -1,12 +1,10 @@
 package codes.castled.stall.paper;
 
+import codes.castled.stall.config.StallLang;
 import codes.castled.stall.offer.Offer;
 import codes.castled.stall.offer.OfferItem;
 import codes.castled.stall.shop.Shop;
-import codes.castled.stall.shop.ShopContainers;
-import codes.castled.stall.shop.Tokens;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -59,7 +57,7 @@ final class StallCommands implements CommandExecutor, TabCompleter
                 || (subcommand.equals("admin") && !sender.hasPermission("stall.admin"))
                 || (subcommand.equals("list") && args.length > 1 && !sender.hasPermission("stall.admin")))
         {
-            return fail(sender, "You don't have permission to do that.");
+            return fail(sender, shops.lang().chat("commands.no-permission"));
         }
         try
         {
@@ -76,30 +74,45 @@ final class StallCommands implements CommandExecutor, TabCompleter
                 case "remove" -> args.length == 1 ? remove(sender, shops) : usage(sender);
                 case "reclaim" -> args.length == 1 ? reclaim(sender, shops) : usage(sender);
                 case "preview" -> args.length == 1 ? preview(sender, shops) : usage(sender);
-                case "admin" -> args.length >= 3 && args.length <= 4 && args[1].equalsIgnoreCase("give")
-                        ? give(sender, args[2], amount(args, 3)) : usage(sender);
+                case "admin" -> admin(sender, args);
                 default -> usage(sender);
             };
         }
         catch (NumberFormatException invalid)
         {
-            return fail(sender, "Amount must be a whole number from 1 to " + Tokens.MAX_PER_COMMAND + ".");
+            return fail(sender, shops.lang().chat("commands.invalid-amount",
+                    "max", String.valueOf(shops.config().maxTokensPerCommand())));
         }
     }
 
-    private static int amount(String[] args, int index)
+    private int admin(CommandSender sender, String[] args)
+    {
+        if (args.length == 2 && args[1].equalsIgnoreCase("reload"))
+        {
+            shops.reloadConfig();
+            return succeed(sender, shops.lang().chat("commands.reload"), 1);
+        }
+        if (args.length >= 3 && args.length <= 4 && args[1].equalsIgnoreCase("give"))
+        {
+            return give(sender, args[2], amount(args, 3));
+        }
+        return usage(sender);
+    }
+
+    private int amount(String[] args, int index)
     {
         int amount = args.length > index ? Integer.parseInt(args[index]) : 1;
-        if (amount < 1 || amount > Tokens.MAX_PER_COMMAND)
+        if (amount < 1 || amount > shops.config().maxTokensPerCommand())
         {
             throw new NumberFormatException("amount outside the token limit");
         }
         return amount;
     }
 
-    private static int usage(CommandSender sender)
+    private int usage(CommandSender sender)
     {
-        return fail(sender, "Use /stall for commands. Token amounts must be from 1 to " + Tokens.MAX_PER_COMMAND + ".");
+        return fail(sender, shops.lang().chat("commands.usage",
+                "max", String.valueOf(shops.config().maxTokensPerCommand())));
     }
 
     @Override
@@ -114,7 +127,7 @@ final class StallCommands implements CommandExecutor, TabCompleter
         }
         else if (args.length == 2 && args[0].equalsIgnoreCase("token") && sender.hasPermission("stall.token"))
         {
-            suggestions.addAll(List.of("1", "16", "64"));
+            suggestions.addAll(amountSuggestions());
         }
         else if (sender.hasPermission("stall.admin"))
         {
@@ -124,14 +137,14 @@ final class StallCommands implements CommandExecutor, TabCompleter
             }
             else if (args[0].equalsIgnoreCase("admin"))
             {
-                if (args.length == 2) suggestions.add("give");
+                if (args.length == 2) suggestions.addAll(List.of("give", "reload"));
                 else if (args.length == 3 && args[1].equalsIgnoreCase("give"))
                 {
                     Bukkit.getOnlinePlayers().forEach(player -> suggestions.add(player.getName()));
                 }
                 else if (args.length == 4 && args[1].equalsIgnoreCase("give"))
                 {
-                    suggestions.addAll(List.of("1", "16", "64"));
+                    suggestions.addAll(amountSuggestions());
                 }
             }
         }
@@ -139,185 +152,201 @@ final class StallCommands implements CommandExecutor, TabCompleter
         return suggestions.stream().filter(value -> value.toLowerCase(Locale.ROOT).startsWith(prefix)).sorted().toList();
     }
 
+    private List<String> amountSuggestions()
+    {
+        int max = shops.config().maxTokensPerCommand();
+        return List.of(1, 16, 64).stream().filter(amount -> amount <= max).map(String::valueOf).toList();
+    }
+
     private static CommandSender executor(CommandSender source)
     {
         return source instanceof ProxiedCommandSender proxy ? proxy.getCallee() : source;
     }
 
-    private static int help(CommandSender source)
+    private int help(CommandSender source)
     {
-        List<String> lines = List.of(
-                "/stall token [amount] - get Stall tokens",
-                "/stall list - list your shops",
-                "/stall info - show the shop you're looking at",
-                "/stall remove - remove the shop you're looking at",
-                "/stall reclaim - collect tokens from shops removed while you were away",
-                "/stall preview - see your own shops as a buyer does");
-        CommandSender sender = source;
-        sender.sendMessage(BukkitItems.text("Stall: use a token on a barrel or chest to make it your shop. Sneak and right-click "
-                + "your shop with an empty hand to set up offers.", ChatColor.GOLD));
+        StallLang lang = shops.lang();
+        BukkitItems.send(source, lang.chat("commands.help.header"));
+        List<String> lines = lang.lines("commands.help.lines");
         for (String line : lines)
         {
-            sender.sendMessage(BukkitItems.text(line, ChatColor.GRAY));
+            BukkitItems.send(source, line);
         }
         return lines.size();
     }
 
-    private static int token(CommandSender source, int amount)
+    private int token(CommandSender source, int amount)
     {
         if (!(executor(source) instanceof Player player))
         {
-            return fail(source, "Only players can do that.");
+            return fail(source, shops.lang().chat("commands.players-only"));
         }
-        PaperShops.giveTokens(player, amount);
-        return succeed(source, (amount == 1 ? "Here's a Stall token." : "Here are " + amount + " Stall tokens.")
-                + " Use one on a barrel or chest to make it your shop.", amount);
+        shops.giveTokens(player, amount);
+        return succeed(source, shops.lang().chat(amount == 1 ? "commands.token.one" : "commands.token.many",
+                "amount", String.valueOf(amount)), amount);
     }
 
     private static int listOwn(CommandSender source, PaperShops shops)
     {
+        StallLang lang = shops.lang();
         if (!(executor(source) instanceof Player player))
         {
-            return fail(source, "Only players can do that.");
+            return fail(source, lang.chat("commands.players-only"));
         }
         List<Shop<ItemStack>> owned = ownedBy(shops, shop -> shop.isOwner(player.getUniqueId()));
-        String limit = PaperShops.describeLimit(PaperShops.shopLimit(player));
-        CommandSender sender = source;
+        String limit = shops.describeLimit(shops.shopLimit(player));
         if (owned.isEmpty())
         {
-            sender.sendMessage(BukkitItems.text("You don't own any shops (limit: " + limit + "). Use a Stall token on a "
-                    + "barrel or chest to make one."));
+            BukkitItems.send(source, lang.chat("commands.list.none-own", "limit", limit));
             return 0;
         }
-        sender.sendMessage(BukkitItems.text("Your shops (" + owned.size() + ", limit: " + limit + "):", ChatColor.GOLD));
-        sendShopLines(sender, owned);
+        BukkitItems.send(source, lang.chat("commands.list.own-header",
+                "count", String.valueOf(owned.size()), "limit", limit));
+        sendShopLines(source, lang, owned);
         return owned.size();
     }
 
     private static int listFor(CommandSender source, PaperShops shops, String name)
     {
+        StallLang lang = shops.lang();
         List<Shop<ItemStack>> owned = ownedBy(shops, shop -> shop.ownerName().equalsIgnoreCase(name));
         if (owned.isEmpty())
         {
-            return fail(source, name + " doesn't own any shops.");
+            return fail(source, lang.chat("commands.list.none-other", "player", name));
         }
-        source.sendMessage(BukkitItems.text(owned.getFirst().ownerName() + "'s shops (" + owned.size() + "):",
-                ChatColor.GOLD));
-        sendShopLines(source, owned);
+        BukkitItems.send(source, lang.chat("commands.list.other-header",
+                "owner", owned.getFirst().ownerName(), "count", String.valueOf(owned.size())));
+        sendShopLines(source, lang, owned);
         return owned.size();
     }
 
     private static int info(CommandSender source, PaperShops shops)
     {
+        StallLang lang = shops.lang();
         if (!(executor(source) instanceof Player player))
         {
-            return fail(source, "Only players can do that.");
+            return fail(source, lang.chat("commands.players-only"));
         }
         Optional<Shop<ItemStack>> target = targetShop(player, shops);
         if (target.isEmpty())
         {
-            return fail(source, "Look at a shop first.");
+            return fail(source, lang.chat("commands.look-at-shop"));
         }
         Shop<ItemStack> shop = target.get();
-        CommandSender sender = source;
-        sender.sendMessage(BukkitItems.text(shop.ownerName() + "'s shop at " + shop.location() + ", a "
-                + (shop.largeStock() ? "large " : "") + ShopContainers.describe(shop.container()), ChatColor.GOLD));
+        BukkitItems.send(source, lang.chat("commands.info.header",
+                "owner", shop.ownerName(),
+                "location", shop.location().toString(),
+                "container", lang.container(shop.container(), shop.largeStock())));
         if (shop.offers().isEmpty())
         {
-            sender.sendMessage(BukkitItems.text(" No offers yet.", ChatColor.GRAY));
+            BukkitItems.send(source, lang.text("commands.info.no-offers"));
         }
         List<Offer<ItemStack>> offers = shop.offers();
         for (int i = 0; i < offers.size(); i++)
         {
             Offer<ItemStack> offer = offers.get(i);
-            StringBuilder line = new StringBuilder(BukkitItems.text(" " + (i + 1) + ". ", ChatColor.GRAY))
-                    .append(items(offer.costs().items()))
-                    .append(BukkitItems.text(" → ", ChatColor.GRAY))
-                    .append(items(offer.rewards().items()));
+            StringBuilder line = new StringBuilder(lang.text("commands.info.offer-prefix",
+                    "index", String.valueOf(i + 1)))
+                    .append(items(lang, offer.costs().items()))
+                    .append(lang.text("commands.info.offer-arrow"))
+                    .append(items(lang, offer.rewards().items()));
             if (!offer.isComplete())
             {
-                line.append(BukkitItems.text(" (not set up yet)", ChatColor.DARK_GRAY));
+                line.append(lang.text("commands.info.incomplete-suffix"));
             }
-            sender.sendMessage(line.toString());
+            BukkitItems.send(source, line.toString());
         }
         return offers.size();
     }
 
     private static int remove(CommandSender source, PaperShops shops)
     {
+        StallLang lang = shops.lang();
         if (!(executor(source) instanceof Player player))
         {
-            return fail(source, "Only players can do that.");
+            return fail(source, lang.chat("commands.players-only"));
         }
         Optional<Shop<ItemStack>> target = targetShop(player, shops);
         if (target.isEmpty())
         {
-            return fail(source, "Look at a shop first.");
+            return fail(source, lang.chat("commands.look-at-shop"));
         }
         Shop<ItemStack> shop = target.get();
         boolean own = shop.isOwner(player.getUniqueId());
-        if (!shops.canAccess(player, shop)) return fail(source, "Move closer to the shop and try again.");
+        if (!shops.canAccess(player, shop)) return fail(source, lang.chat("commands.move-closer"));
         if (!own && !player.hasPermission("stall.admin"))
         {
-            return fail(source, "This shop belongs to " + shop.ownerName() + ".");
+            return fail(source, lang.chat("shops.belongs-to", "owner", shop.ownerName()));
         }
         if (!shops.extraStockEmpty(shop))
         {
-            return fail(source, "This large barrel still holds stock in its extra slots, which an ordinary barrel can't "
-                    + "keep. Empty them first, or break the barrel.");
+            return fail(source, lang.chat("commands.remove.extra-stock-not-empty"));
         }
         PaperShops.TokenReturn token = shops.remove(shop, player, null);
-        String message = own ? "Removed your shop." : "Removed " + shop.ownerName() + "'s shop.";
-        message += switch (token)
+        String message = own
+                ? lang.chat("commands.remove.own", "owner", shop.ownerName())
+                : lang.chat("commands.remove.other", "owner", shop.ownerName());
+        if (!message.isEmpty())
         {
-            case NONE, DROPPED -> "";
-            case GIVEN -> own ? " Its token is back in your inventory." : " Its token went back to them.";
-            case OWED -> " They'll get its token back with /stall reclaim.";
-        };
+            message += switch (token)
+            {
+                case NONE, DROPPED -> "";
+                case GIVEN -> own
+                        ? lang.text("commands.remove.token-own-inventory")
+                        : lang.text("commands.remove.token-other-inventory");
+                case OWED -> lang.text("commands.remove.token-owed");
+            };
+        }
         return succeed(source, message, 1);
     }
 
     private static int reclaim(CommandSender source, PaperShops shops)
     {
+        StallLang lang = shops.lang();
         if (!(executor(source) instanceof Player player))
         {
-            return fail(source, "Only players can do that.");
+            return fail(source, lang.chat("commands.players-only"));
         }
         int owed = shops.reclaimTokens(player);
         if (owed == 0)
         {
-            return fail(source, "You have no tokens waiting.");
+            return fail(source, lang.chat("commands.reclaim.none"));
         }
-        return succeed(source, owed == 1 ? "Here's your Stall token back." : "Here are your " + owed
-                + " Stall tokens back.", owed);
+        return succeed(source, lang.chat(owed == 1 ? "commands.reclaim.one" : "commands.reclaim.many",
+                "count", String.valueOf(owed)), owed);
     }
 
     private static int preview(CommandSender source, PaperShops shops)
     {
+        StallLang lang = shops.lang();
         if (!(executor(source) instanceof Player player))
         {
-            return fail(source, "Only players can do that.");
+            return fail(source, lang.chat("commands.players-only"));
         }
         boolean on = shops.toggleBuyerPreview(player.getUniqueId());
-        return succeed(source, on
-                ? "Your own shops now open as they do for buyers. Use /stall preview again to stop."
-                : "Your own shops open normally again.", on ? 1 : 0);
+        return succeed(source, lang.chat(on ? "commands.preview.enabled" : "commands.preview.disabled"),
+                on ? 1 : 0);
     }
 
     private int give(CommandSender source, String name, int amount)
     {
+        StallLang lang = shops.lang();
         Player target = Bukkit.getPlayerExact(name);
         if (target == null)
         {
-            return fail(source, name + " isn't online.");
+            return fail(source, lang.chat("commands.player-offline", "player", name));
         }
         shops.scheduler().entity(target, () ->
         {
             if (!target.isOnline()) return;
-            PaperShops.giveTokens(target, amount);
-            String tokens = amount == 1 ? "a Stall token" : amount + " Stall tokens";
-            target.sendMessage(BukkitItems.text("You received " + tokens + ". Use one on a barrel or chest to make it your shop.", ChatColor.GREEN));
-            succeed(source, "Gave " + target.getName() + " " + tokens + ".", amount);
+            StallLang currentLang = shops.lang();
+            shops.giveTokens(target, amount);
+            String tokens = currentLang.text(amount == 1 ? "commands.give.token-one" : "commands.give.token-many",
+                    "amount", String.valueOf(amount));
+            BukkitItems.send(target, currentLang.chat("commands.give.received",
+                    "tokens", tokens, "amount", String.valueOf(amount)));
+            succeed(source, currentLang.chat("commands.give.sent",
+                    "player", target.getName(), "tokens", tokens, "amount", String.valueOf(amount)), amount);
         });
         return amount;
     }
@@ -332,43 +361,46 @@ final class StallCommands implements CommandExecutor, TabCompleter
                 .toList();
     }
 
-    private static void sendShopLines(CommandSender sender, List<Shop<ItemStack>> shops)
+    private static void sendShopLines(CommandSender sender, StallLang lang, List<Shop<ItemStack>> shops)
     {
         for (Shop<ItemStack> shop : shops)
         {
             int complete = shop.completeOffers().size();
-            sender.sendMessage(BukkitItems.text(" " + shop.location() + " - "
-                    + (complete == 1 ? "1 offer" : complete + " offers"), ChatColor.GRAY));
+            BukkitItems.send(sender, lang.text(
+                    complete == 1 ? "commands.list.entry-one" : "commands.list.entry-many",
+                    "location", shop.location().toString(),
+                    "offers", String.valueOf(complete)));
         }
     }
 
-    private static String items(List<OfferItem<ItemStack>> items)
+    private static String items(StallLang lang, List<OfferItem<ItemStack>> items)
     {
         if (items.isEmpty())
         {
-            return BukkitItems.text("nothing yet", ChatColor.DARK_GRAY);
+            return lang.text("commands.info.nothing-yet");
         }
         StringBuilder text = new StringBuilder();
         for (int i = 0; i < items.size(); i++)
         {
             if (i > 0)
             {
-                text.append(BukkitItems.text(" + ", ChatColor.GRAY));
+                text.append(lang.text("commands.info.item-separator"));
             }
-            text.append(items.get(i).amount()).append("× ").append(BukkitItems.name(items.get(i).item()));
+            text.append(lang.text("commands.info.item-amount", "amount", String.valueOf(items.get(i).amount())))
+                    .append(BukkitItems.name(items.get(i).item()));
         }
         return text.toString();
     }
 
     private static int succeed(CommandSender source, String message, int result)
     {
-        source.sendMessage(BukkitItems.text(message, ChatColor.GREEN));
+        BukkitItems.send(source, message);
         return result;
     }
 
     private static int fail(CommandSender source, String message)
     {
-        source.sendMessage(BukkitItems.text(message, ChatColor.RED));
+        BukkitItems.send(source, message);
         return 0;
     }
 

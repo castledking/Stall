@@ -1,5 +1,6 @@
 package codes.castled.stall.fabric;
 
+import codes.castled.stall.config.StallConfig;
 import codes.castled.stall.shop.ShopLimits;
 import net.fabricmc.fabric.api.permission.v1.PermissionContextOwner;
 import net.minecraft.resources.Identifier;
@@ -37,8 +38,8 @@ final class StallPermissions
         };
     }
 
-    static int shopLimit(PermissionContextOwner subject)
+    static int shopLimit(PermissionContextOwner subject, StallConfig config)
     {
-        return ShopLimits.limitFor(path -> has(subject, path));
+        return ShopLimits.limitFor(path -> has(subject, path), config.defaultShopLimit(), config.maxLimitTier());
     }
 }

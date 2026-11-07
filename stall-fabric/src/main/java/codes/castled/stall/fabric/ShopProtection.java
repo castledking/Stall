@@ -34,11 +34,22 @@ public final class ShopProtection
     public static boolean mayExtract(Level level, BlockPos pos)
     {
         FabricShops shops = active;
-        if (shops == null || level.isClientSide())
+        if (shops == null || level.isClientSide() || !shops.config().protectHopperExtract())
         {
             return true;
         }
         // Most hoppers sit under something other than a shop container; skip the shop lookup for them.
+        return !FabricContainers.isSupported(level.getBlockState(pos)) || shops.shopAt(level, pos).isEmpty();
+    }
+
+    /** Whether a hopper may push items into the block at {@code pos}. */
+    public static boolean mayInsert(Level level, BlockPos pos)
+    {
+        FabricShops shops = active;
+        if (shops == null || level.isClientSide() || shops.config().allowHopperInsert())
+        {
+            return true;
+        }
         return !FabricContainers.isSupported(level.getBlockState(pos)) || shops.shopAt(level, pos).isEmpty();
     }
 
@@ -58,8 +69,16 @@ public final class ShopProtection
         }
         BlockPos partner = context.getClickedPos().relative(ChestBlock.getConnectedDirection(placed));
         Optional<Shop<ItemStack>> shop = shops.shopAt(level, partner);
-        boolean allowed = shop.isEmpty() || (context.getPlayer() instanceof ServerPlayer player
-                && (shop.get().isOwner(player.getUUID()) || StallPermissions.has(player, StallPermissions.ADMIN)));
+        if (shop.isEmpty())
+        {
+            return placed;
+        }
+        if (!shops.config().doubleChestsAllowed())
+        {
+            return placed.setValue(ChestBlock.TYPE, ChestType.SINGLE);
+        }
+        boolean allowed = context.getPlayer() instanceof ServerPlayer player
+                && (shop.get().isOwner(player.getUUID()) || StallPermissions.has(player, StallPermissions.ADMIN));
         return allowed ? placed : placed.setValue(ChestBlock.TYPE, ChestType.SINGLE);
     }
 
@@ -68,7 +87,10 @@ public final class ShopProtection
         FabricShops shops = active;
         // Vanilla shuffles/mutates this list after the hook; Stream.toList() would crash an explosion.
         java.util.ArrayList<BlockPos> affected = new java.util.ArrayList<>(blocks);
-        if (shops != null) affected.removeIf(pos -> shops.shopAt(level, pos).isPresent());
+        if (shops != null && shops.config().protectExplosions())
+        {
+            affected.removeIf(pos -> shops.shopAt(level, pos).isPresent());
+        }
         return affected;
     }
 }

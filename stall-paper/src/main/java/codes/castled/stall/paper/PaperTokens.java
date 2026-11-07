@@ -1,5 +1,8 @@
 package codes.castled.stall.paper;
 
+import codes.castled.stall.config.LegacyText;
+import codes.castled.stall.config.StallConfig;
+import codes.castled.stall.config.StallLang;
 import codes.castled.stall.shop.Tokens;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
@@ -23,11 +26,26 @@ final class PaperTokens
 
     static ItemStack create(int count)
     {
+        return create(count, StallConfig.defaults(), StallLang.defaults());
+    }
+
+    static ItemStack create(int count, StallConfig config, StallLang lang)
+    {
         // The legacy text setters encode style defaults differently on Spigot and Paper. Parsing the
         // same vanilla components keeps token identity identical, including the Fabric token's text.
-        String lore = Tokens.LORE.stream().map(line -> text(line, "gray")).collect(Collectors.joining(","));
-        ItemStack token = Bukkit.getItemFactory().createItemStack("minecraft:paper[minecraft:custom_name="
-                + text(Tokens.NAME, "gold") + ",minecraft:lore=[" + lore + "],minecraft:enchantment_glint_override=true]");
+        String name = LegacyText.itemSnbt(lang.text("token.name"));
+        String lore = lang.lines("token.lore").stream()
+                .map(LegacyText::itemSnbt)
+                .collect(Collectors.joining(","));
+        StringBuilder spec = new StringBuilder("minecraft:paper[minecraft:custom_name=")
+                .append(name)
+                .append(",minecraft:lore=[").append(lore).append(']');
+        if (config.tokenGlint())
+        {
+            spec.append(",minecraft:enchantment_glint_override=true");
+        }
+        spec.append(']');
+        ItemStack token = Bukkit.getItemFactory().createItemStack(spec.toString());
         token.setAmount(count);
         BukkitItems.editMeta(token, meta ->
         {
@@ -39,11 +57,5 @@ final class PaperTokens
     static boolean isToken(ItemStack stack)
     {
         return !BukkitItems.isEmpty(stack) && stack.getItemMeta().getPersistentDataContainer().has(MARKER);
-    }
-
-    private static String text(String text, String color)
-    {
-        String quoted = text.replace("\\", "\\\\").replace("\"", "\\\"");
-        return "{text:\"" + quoted + "\",color:'" + color + "',italic:false}";
     }
 }

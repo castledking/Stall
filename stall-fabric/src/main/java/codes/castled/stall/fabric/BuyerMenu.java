@@ -1,5 +1,6 @@
 package codes.castled.stall.fabric;
 
+import codes.castled.stall.config.StallLang;
 import codes.castled.stall.menu.ShopMenuLayout;
 import codes.castled.stall.menu.ShopMenuLayout.Role;
 import codes.castled.stall.offer.Offer;
@@ -68,6 +69,7 @@ final class BuyerMenu extends StallMenu
         beginRender();
         rowOffers.clear();
 
+        StallLang lang = shops.lang();
         TradePlanner<ItemStack> planner = shops.planner();
         Optional<Container> stockContainer = shops.stock(viewer.level(), shop);
         SlotInventory<ItemStack> buyer = FabricShops.buyerSlots(viewer);
@@ -83,7 +85,8 @@ final class BuyerMenu extends StallMenu
                 List<OfferItem<ItemStack>> items = offer.side(cost).items();
                 for (int i = 0; i < items.size(); i++)
                 {
-                    display.setItem(ShopMenuLayout.itemSlot(row, cost, i), MenuItems.offerItem(items.get(i), cost));
+                    display.setItem(ShopMenuLayout.itemSlot(row, cost, i),
+                            MenuItems.offerItem(lang, items.get(i), cost));
                 }
             }
             OfferStatus status = stock == null ? OfferStatus.UNAVAILABLE : planner.status(offer, buyer, stock);
@@ -94,8 +97,8 @@ final class BuyerMenu extends StallMenu
                 case CANNOT_AFFORD -> planner.missingPayment(offer, buyer);
                 default -> List.of();
             };
-            display.setItem(ShopMenuLayout.statusSlot(row), MenuItems.status(status, inStock, missing));
-            display.setItem(ShopMenuLayout.buySlot(row), MenuItems.buyButton(status));
+            display.setItem(ShopMenuLayout.statusSlot(row), MenuItems.status(lang, status, inStock, missing));
+            display.setItem(ShopMenuLayout.buySlot(row), MenuItems.buyButton(lang, status));
         }
     }
 }

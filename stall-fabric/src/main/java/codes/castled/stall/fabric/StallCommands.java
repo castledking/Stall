@@ -1,15 +1,14 @@
 package codes.castled.stall.fabric;
 
+import codes.castled.stall.config.StallLang;
 import codes.castled.stall.offer.Offer;
 import codes.castled.stall.offer.OfferItem;
 import codes.castled.stall.shop.Shop;
-import codes.castled.stall.shop.ShopContainers;
 import codes.castled.stall.shop.Tokens;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
-import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -36,12 +35,12 @@ final class StallCommands
     static void register(CommandDispatcher<CommandSourceStack> dispatcher, FabricShops shops)
     {
         dispatcher.register(Commands.literal("stall")
-                .executes(context -> help(context.getSource()))
+                .executes(context -> help(context.getSource(), shops))
                 .then(Commands.literal("token")
                         .requires(source -> StallPermissions.has(source, StallPermissions.TOKEN))
-                        .executes(context -> token(context.getSource(), 1))
+                        .executes(context -> token(context.getSource(), shops, 1))
                         .then(Commands.argument("amount", IntegerArgumentType.integer(1, Tokens.MAX_PER_COMMAND))
-                                .executes(context -> token(context.getSource(),
+                                .executes(context -> token(context.getSource(), shops,
                                         IntegerArgumentType.getInteger(context, "amount")))))
                 .then(Commands.literal("list")
                         .executes(context -> listOwn(context.getSource(), shops))
@@ -57,104 +56,112 @@ final class StallCommands
                 .then(Commands.literal("preview").executes(context -> preview(context.getSource(), shops)))
                 .then(Commands.literal("admin")
                         .requires(source -> StallPermissions.has(source, StallPermissions.ADMIN))
+                        .then(Commands.literal("reload")
+                                .executes(context -> reload(context.getSource(), shops)))
                         .then(Commands.literal("give")
                                 .then(Commands.argument("player", StringArgumentType.word())
                                         .suggests((context, builder) -> SharedSuggestionProvider.suggest(
                                                 Arrays.asList(context.getSource().getServer().getPlayerNames()), builder))
-                                        .executes(context -> give(context.getSource(),
+                                        .executes(context -> give(context.getSource(), shops,
                                                 StringArgumentType.getString(context, "player"), 1))
                                         .then(Commands.argument("amount", IntegerArgumentType.integer(1, Tokens.MAX_PER_COMMAND))
-                                                .executes(context -> give(context.getSource(),
+                                                .executes(context -> give(context.getSource(), shops,
                                                         StringArgumentType.getString(context, "player"),
                                                         IntegerArgumentType.getInteger(context, "amount"))))))));
     }
 
-    private static int help(CommandSourceStack source)
+    private static int help(CommandSourceStack source, FabricShops shops)
     {
-        List<String> lines = List.of(
-                "/stall token [amount] - get Stall tokens",
-                "/stall list - list your shops",
-                "/stall info - show the shop you're looking at",
-                "/stall remove - remove the shop you're looking at",
-                "/stall reclaim - collect tokens from shops removed while you were away",
-                "/stall preview - see your own shops as a buyer does");
-        source.sendSuccess(() -> Component.literal("Stall: use a token on a barrel or chest to make it your shop. Sneak and "
-                + "right-click your shop with an empty hand to set up offers.").withStyle(ChatFormatting.GOLD), false);
+        StallLang lang = shops.lang();
+        FabricText.sendSuccess(source, lang.chat("commands.help.header"), false);
+        List<String> lines = lang.lines("commands.help.lines");
         for (String line : lines)
         {
-            source.sendSuccess(() -> Component.literal(line).withStyle(ChatFormatting.GRAY), false);
+            FabricText.sendSuccess(source, line, false);
         }
         return lines.size();
     }
 
-    private static int token(CommandSourceStack source, int amount) throws CommandSyntaxException
+    private static int token(CommandSourceStack source, FabricShops shops, int amount) throws CommandSyntaxException
     {
+        int max = shops.config().maxTokensPerCommand();
+        if (amount < 1 || amount > max)
+        {
+            FabricText.sendFailure(source, shops.lang().chat("commands.invalid-amount",
+                    "max", String.valueOf(max)));
+            return 0;
+        }
         ServerPlayer player = source.getPlayerOrException();
-        FabricShops.giveTokens(player, amount);
-        source.sendSuccess(() -> success((amount == 1 ? "Here's a Stall token." : "Here are " + amount + " Stall tokens.")
-                + " Use one on a barrel or chest to make it your shop."), false);
+        shops.giveTokens(player, amount);
+        FabricText.sendSuccess(source, shops.lang().chat(
+                amount == 1 ? "commands.token.one" : "commands.token.many",
+                "amount", String.valueOf(amount)), false);
         return amount;
     }
 
     private static int listOwn(CommandSourceStack source, FabricShops shops) throws CommandSyntaxException
     {
+        StallLang lang = shops.lang();
         ServerPlayer player = source.getPlayerOrException();
         List<Shop<ItemStack>> owned = ownedBy(shops, shop -> shop.isOwner(player.getUUID()));
-        String limit = FabricShops.describeLimit(StallPermissions.shopLimit(player));
+        String limit = shops.describeLimit(StallPermissions.shopLimit(player, shops.config()));
         if (owned.isEmpty())
         {
-            source.sendSuccess(() -> Component.literal("You don't own any shops (limit: " + limit + "). Use a Stall token "
-                    + "on a barrel or chest to make one."), false);
+            FabricText.sendSuccess(source, lang.chat("commands.list.none-own", "limit", limit), false);
             return 0;
         }
-        source.sendSuccess(() -> Component.literal("Your shops (" + owned.size() + ", limit: " + limit + "):")
-                .withStyle(ChatFormatting.GOLD), false);
-        sendShopLines(source, owned);
+        FabricText.sendSuccess(source, lang.chat("commands.list.own-header",
+                "count", String.valueOf(owned.size()), "limit", limit), false);
+        sendShopLines(source, lang, owned);
         return owned.size();
     }
 
     private static int listFor(CommandSourceStack source, FabricShops shops, String name)
     {
+        StallLang lang = shops.lang();
         List<Shop<ItemStack>> owned = ownedBy(shops, shop -> shop.ownerName().equalsIgnoreCase(name));
         if (owned.isEmpty())
         {
-            source.sendFailure(Component.literal(name + " doesn't own any shops."));
+            FabricText.sendFailure(source, lang.chat("commands.list.none-other", "player", name));
             return 0;
         }
-        source.sendSuccess(() -> Component.literal(owned.getFirst().ownerName() + "'s shops (" + owned.size() + "):")
-                .withStyle(ChatFormatting.GOLD), false);
-        sendShopLines(source, owned);
+        FabricText.sendSuccess(source, lang.chat("commands.list.other-header",
+                "owner", owned.getFirst().ownerName(), "count", String.valueOf(owned.size())), false);
+        sendShopLines(source, lang, owned);
         return owned.size();
     }
 
     private static int info(CommandSourceStack source, FabricShops shops) throws CommandSyntaxException
     {
+        StallLang lang = shops.lang();
         ServerPlayer player = source.getPlayerOrException();
         Optional<Shop<ItemStack>> target = targetShop(player, shops);
         if (target.isEmpty())
         {
-            source.sendFailure(Component.literal("Look at a shop first."));
+            FabricText.sendFailure(source, lang.chat("commands.look-at-shop"));
             return 0;
         }
         Shop<ItemStack> shop = target.get();
-        source.sendSuccess(() -> Component.literal(shop.ownerName() + "'s shop at " + shop.location() + ", a "
-                + (shop.largeStock() ? "large " : "") + ShopContainers.describe(shop.container()))
-                .withStyle(ChatFormatting.GOLD), false);
+        FabricText.sendSuccess(source, lang.chat("commands.info.header",
+                "owner", shop.ownerName(),
+                "location", shop.location().toString(),
+                "container", lang.container(shop.container(), shop.largeStock())), false);
         if (shop.offers().isEmpty())
         {
-            source.sendSuccess(() -> Component.literal(" No offers yet.").withStyle(ChatFormatting.GRAY), false);
+            FabricText.sendSuccess(source, lang.text("commands.info.no-offers"), false);
         }
         List<Offer<ItemStack>> offers = shop.offers();
         for (int i = 0; i < offers.size(); i++)
         {
             Offer<ItemStack> offer = offers.get(i);
-            MutableComponent line = Component.literal(" " + (i + 1) + ". ").withStyle(ChatFormatting.GRAY)
-                    .append(items(offer.costs().items()))
-                    .append(Component.literal(" → ").withStyle(ChatFormatting.GRAY))
-                    .append(items(offer.rewards().items()));
+            MutableComponent line = FabricText.chat(lang.text("commands.info.offer-prefix",
+                    "index", String.valueOf(i + 1)))
+                    .append(items(lang, offer.costs().items()))
+                    .append(FabricText.chat(lang.text("commands.info.offer-arrow")))
+                    .append(items(lang, offer.rewards().items()));
             if (!offer.isComplete())
             {
-                line.append(Component.literal(" (not set up yet)").withStyle(ChatFormatting.DARK_GRAY));
+                line.append(FabricText.chat(lang.text("commands.info.incomplete-suffix")));
             }
             source.sendSuccess(() -> line, false);
         }
@@ -163,75 +170,99 @@ final class StallCommands
 
     private static int remove(CommandSourceStack source, FabricShops shops) throws CommandSyntaxException
     {
+        StallLang lang = shops.lang();
         ServerPlayer player = source.getPlayerOrException();
         Optional<Shop<ItemStack>> target = targetShop(player, shops);
         if (target.isEmpty())
         {
-            source.sendFailure(Component.literal("Look at a shop first."));
+            FabricText.sendFailure(source, lang.chat("commands.look-at-shop"));
             return 0;
         }
         Shop<ItemStack> shop = target.get();
         boolean own = shop.isOwner(player.getUUID());
         if (!own && !StallPermissions.has(player, StallPermissions.ADMIN))
         {
-            source.sendFailure(Component.literal("This shop belongs to " + shop.ownerName() + "."));
+            FabricText.sendFailure(source, lang.chat("shops.belongs-to", "owner", shop.ownerName()));
             return 0;
         }
         if (!shops.extraStockEmpty(player.level(), shop))
         {
-            source.sendFailure(Component.literal("This large barrel still holds stock in its extra slots, which an "
-                    + "ordinary barrel can't keep. Empty them first, or break the barrel."));
+            FabricText.sendFailure(source, lang.chat("commands.remove.extra-stock-not-empty"));
             return 0;
         }
         FabricShops.TokenReturn token = shops.remove(source.getServer(), shop, player, null);
-        String message = own ? "Removed your shop." : "Removed " + shop.ownerName() + "'s shop.";
-        message += switch (token)
+        String message = own
+                ? lang.chat("commands.remove.own", "owner", shop.ownerName())
+                : lang.chat("commands.remove.other", "owner", shop.ownerName());
+        if (!message.isEmpty())
         {
-            case NONE, DROPPED -> "";
-            case GIVEN -> own ? " Its token is back in your inventory." : " Its token went back to them.";
-            case OWED -> " They'll get its token back with /stall reclaim.";
-        };
-        String result = message;
-        source.sendSuccess(() -> success(result), false);
+            message += switch (token)
+            {
+                case NONE, DROPPED -> "";
+                case GIVEN -> own
+                        ? lang.text("commands.remove.token-own-inventory")
+                        : lang.text("commands.remove.token-other-inventory");
+                case OWED -> lang.text("commands.remove.token-owed");
+            };
+        }
+        FabricText.sendSuccess(source, message, false);
         return 1;
     }
 
     private static int reclaim(CommandSourceStack source, FabricShops shops) throws CommandSyntaxException
     {
+        StallLang lang = shops.lang();
         ServerPlayer player = source.getPlayerOrException();
         int owed = shops.reclaimTokens(player);
         if (owed == 0)
         {
-            source.sendFailure(Component.literal("You have no tokens waiting."));
+            FabricText.sendFailure(source, lang.chat("commands.reclaim.none"));
             return 0;
         }
-        source.sendSuccess(() -> success(owed == 1 ? "Here's your Stall token back." : "Here are your " + owed
-                + " Stall tokens back."), false);
+        FabricText.sendSuccess(source, lang.chat(owed == 1 ? "commands.reclaim.one" : "commands.reclaim.many",
+                "count", String.valueOf(owed)), false);
         return owed;
     }
 
     private static int preview(CommandSourceStack source, FabricShops shops) throws CommandSyntaxException
     {
+        StallLang lang = shops.lang();
         ServerPlayer player = source.getPlayerOrException();
         boolean on = shops.toggleBuyerPreview(player.getUUID());
-        source.sendSuccess(() -> success(on
-                ? "Your own shops now open as they do for buyers. Use /stall preview again to stop."
-                : "Your own shops open normally again."), false);
+        FabricText.sendSuccess(source, lang.chat(on ? "commands.preview.enabled" : "commands.preview.disabled"),
+                false);
         return on ? 1 : 0;
     }
 
-    private static int give(CommandSourceStack source, String name, int amount)
+    private static int reload(CommandSourceStack source, FabricShops shops)
     {
+        shops.reloadConfig();
+        FabricText.sendSuccess(source, shops.lang().chat("commands.reload"), true);
+        return 1;
+    }
+
+    private static int give(CommandSourceStack source, FabricShops shops, String name, int amount)
+    {
+        StallLang lang = shops.lang();
+        int max = shops.config().maxTokensPerCommand();
+        if (amount < 1 || amount > max)
+        {
+            FabricText.sendFailure(source, lang.chat("commands.invalid-amount", "max", String.valueOf(max)));
+            return 0;
+        }
         ServerPlayer target = source.getServer().getPlayerList().getPlayerByName(name);
         if (target == null)
         {
-            source.sendFailure(Component.literal(name + " isn't online."));
+            FabricText.sendFailure(source, lang.chat("commands.player-offline", "player", name));
             return 0;
         }
-        FabricShops.giveTokens(target, amount);
-        String tokens = amount == 1 ? "a Stall token" : amount + " Stall tokens";
-        target.sendSystemMessage(success("You received " + tokens + ". Use one on a barrel or chest to make it your shop."));
-        source.sendSuccess(() -> success("Gave " + target.getPlainTextName() + " " + tokens + "."), true);
+        shops.giveTokens(target, amount);
+        String tokens = lang.text(amount == 1 ? "commands.give.token-one" : "commands.give.token-many",
+                "amount", String.valueOf(amount));
+        FabricText.send(target, lang.chat("commands.give.received",
+                "tokens", tokens, "amount", String.valueOf(amount)));
+        FabricText.sendSuccess(source, lang.chat("commands.give.sent",
+                "player", target.getPlainTextName(), "tokens", tokens, "amount", String.valueOf(amount)), true);
         return amount;
     }
 
@@ -245,37 +276,36 @@ final class StallCommands
                 .toList();
     }
 
-    private static void sendShopLines(CommandSourceStack source, List<Shop<ItemStack>> shops)
+    private static void sendShopLines(CommandSourceStack source, StallLang lang, List<Shop<ItemStack>> shops)
     {
         for (Shop<ItemStack> shop : shops)
         {
             int complete = shop.completeOffers().size();
-            source.sendSuccess(() -> Component.literal(" " + shop.location() + " - "
-                    + (complete == 1 ? "1 offer" : complete + " offers")).withStyle(ChatFormatting.GRAY), false);
+            FabricText.sendSuccess(source, lang.text(
+                    complete == 1 ? "commands.list.entry-one" : "commands.list.entry-many",
+                    "location", shop.location().toString(),
+                    "offers", String.valueOf(complete)), false);
         }
     }
 
-    private static MutableComponent items(List<OfferItem<ItemStack>> items)
+    private static MutableComponent items(StallLang lang, List<OfferItem<ItemStack>> items)
     {
-        MutableComponent text = Component.empty();
         if (items.isEmpty())
         {
-            return text.append(Component.literal("nothing yet").withStyle(ChatFormatting.DARK_GRAY));
+            return FabricText.chat(lang.text("commands.info.nothing-yet"));
         }
+        MutableComponent text = Component.empty();
         for (int i = 0; i < items.size(); i++)
         {
             if (i > 0)
             {
-                text.append(Component.literal(" + ").withStyle(ChatFormatting.GRAY));
+                text.append(FabricText.chat(lang.text("commands.info.item-separator")));
             }
-            text.append(Component.literal(items.get(i).amount() + "× ")).append(items.get(i).item().getHoverName());
+            text.append(FabricText.chat(lang.text("commands.info.item-amount",
+                    "amount", String.valueOf(items.get(i).amount()))))
+                    .append(items.get(i).item().getHoverName());
         }
         return text;
-    }
-
-    private static Component success(String message)
-    {
-        return Component.literal(message).withStyle(ChatFormatting.GREEN);
     }
 
     private static Optional<Shop<ItemStack>> targetShop(ServerPlayer player, FabricShops shops)

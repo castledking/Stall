@@ -84,7 +84,7 @@ final class PaperItemCodec implements ItemCodec<ItemStack>
         catch (ReflectiveOperationException incompatible)
         {
             // Fail before loading shops, so an unsupported server never quarantines otherwise valid items.
-            throw new IllegalStateException("Stall could not bind Minecraft 26.3's native item codec", cause(incompatible));
+            throw new IllegalStateException("Stall could not bind Minecraft's native item codec", cause(incompatible));
         }
     }
 

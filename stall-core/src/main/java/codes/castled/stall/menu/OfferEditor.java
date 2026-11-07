@@ -51,14 +51,27 @@ public final class OfferEditor<I>
      */
     public boolean click(Shop<I> shop, int row, boolean cost, int index, MenuClick click, I cursor)
     {
+        return click(shop, row, cost, index, click, cursor, Shop.MAX_OFFERS);
+    }
+
+    /**
+     * Applies a click on item {@code index} of the cost or reward side of the offer in {@code row}, when a
+     * shop holds at most {@code maxOffers} offers.
+     *
+     * @param cursor what the owner holds on the cursor; {@code null} or empty for nothing
+     * @return whether the shop's offers changed
+     */
+    public boolean click(Shop<I> shop, int row, boolean cost, int index, MenuClick click, I cursor, int maxOffers)
+    {
         I held = cursor == null || rules.isEmpty(cursor) ? null : cursor;
         int offerCount = shop.offers().size();
+        int cap = Math.clamp(maxOffers, 1, Shop.MAX_OFFERS);
         if (row < 0 || row > offerCount || index < 0 || index >= OfferSlots.capacity(cost))
         {
             return false;
         }
         boolean newOffer = row == offerCount;
-        if (newOffer && (shop.isFull() || held == null))
+        if (newOffer && (offerCount >= cap || shop.isFull() || held == null))
         {
             return false;
         }

@@ -1,12 +1,13 @@
 package codes.castled.stall.fabric;
 
+import codes.castled.stall.config.StallLang;
 import codes.castled.stall.offer.OfferItem;
 import codes.castled.stall.offer.OfferStatus;
 import codes.castled.stall.trade.ItemAmount;
-import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -26,44 +27,46 @@ final class MenuItems
      * A copy of an offer's item with a line saying how many the trade moves, as the buyer sees it. The
      * stack shows that count when it fits one stack; the lore always gives the exact amount.
      */
-    static ItemStack offerItem(OfferItem<ItemStack> item, boolean cost)
+    static ItemStack offerItem(StallLang lang, OfferItem<ItemStack> item, boolean cost)
     {
-        return withAmountLine(item, cost ? "You pay " : "You get ", cost, List.of());
+        String key = cost ? "menu.offer-item.buyer-pay" : "menu.offer-item.buyer-get";
+        return withAmountLine(item, lang.text(key, "amount", String.valueOf(item.amount())), List.of());
     }
 
     /** An offer's item in the owner menu, with how to change it. */
-    static ItemStack editableOfferItem(OfferItem<ItemStack> item, boolean cost)
+    static ItemStack editableOfferItem(StallLang lang, OfferItem<ItemStack> item, boolean cost)
     {
-        return withAmountLine(item, cost ? "Buyers pay " : "Buyers get ", cost, List.of(
-                line("Click with an item: put it in", ChatFormatting.GRAY),
-                line("Left/right-click: one more/fewer", ChatFormatting.GRAY),
-                line("Shift-click: a stack more/fewer", ChatFormatting.GRAY),
-                line("Q: take it out", ChatFormatting.GRAY)));
+        String key = cost ? "menu.offer-item.owner-pay" : "menu.offer-item.owner-get";
+        return withAmountLine(item, lang.text(key, "amount", String.valueOf(item.amount())),
+                FabricText.itemLines(lang.lines("menu.offer-item.edit-lore")));
     }
 
-    private static ItemStack withAmountLine(OfferItem<ItemStack> item, String prefix, boolean cost, List<Component> extra)
+    private static ItemStack withAmountLine(OfferItem<ItemStack> item, String amountLine, List<Component> extra)
     {
         ItemStack display = item.item().copyWithCount(Math.clamp(item.amount(), 1, item.item().getMaxStackSize()));
         List<Component> lore = new ArrayList<>(display.getOrDefault(DataComponents.LORE, ItemLore.EMPTY).lines());
-        lore.add(line(prefix + item.amount() + "×", cost ? ChatFormatting.GOLD : ChatFormatting.GREEN));
+        if (!amountLine.isEmpty())
+        {
+            lore.add(FabricText.itemLine(amountLine));
+        }
         lore.addAll(extra);
         display.set(DataComponents.LORE, new ItemLore(lore));
         return display;
     }
 
     /** An empty item slot in the owner menu. */
-    static ItemStack emptyOfferSlot(boolean cost)
+    static ItemStack emptyOfferSlot(StallLang lang, boolean cost)
     {
         return named("light_gray_stained_glass_pane",
-                line(cost ? "Add what buyers pay" : "Add what buyers get", cost ? ChatFormatting.GOLD : ChatFormatting.GREEN),
-                List.of(line("Click with an item to put it here", ChatFormatting.GRAY)));
+                FabricText.itemLine(lang.text(cost ? "menu.empty-slot.cost-name" : "menu.empty-slot.reward-name")),
+                FabricText.itemLines(lang.lines("menu.empty-slot.lore")));
     }
 
-    static ItemStack removeButton(boolean armed)
+    static ItemStack removeButton(StallLang lang, boolean armed)
     {
         ItemStack stack = named("barrier",
-                line(armed ? "Press Q again to remove" : "Remove offer", ChatFormatting.RED),
-                List.of(line(armed ? "Any other click cancels" : "Press Q, then Q again", ChatFormatting.GRAY)));
+                FabricText.itemLine(lang.text(armed ? "menu.remove-button.armed-name" : "menu.remove-button.name")),
+                FabricText.itemLines(lang.lines(armed ? "menu.remove-button.armed-lore" : "menu.remove-button.lore")));
         if (armed)
         {
             stack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
@@ -72,30 +75,32 @@ final class MenuItems
     }
 
     /** The status pane of an offer in the owner menu. */
-    static ItemStack ownerStatus(boolean complete, int timesInStock, List<ItemAmount<ItemStack>> missingStock)
+    static ItemStack ownerStatus(StallLang lang, boolean complete, int timesInStock,
+            List<ItemAmount<ItemStack>> missingStock)
     {
         if (!complete)
         {
-            return named("gray_stained_glass_pane", line("Not set up yet", ChatFormatting.GRAY),
-                    List.of(line("Buyers see this offer once it has", ChatFormatting.GRAY),
-                            line("an item on each side.", ChatFormatting.GRAY)));
+            return named("gray_stained_glass_pane",
+                    FabricText.itemLine(lang.text("menu.owner-incomplete.name")),
+                    FabricText.itemLines(lang.lines("menu.owner-incomplete.lore")));
         }
-        return status(timesInStock == 0 ? OfferStatus.OUT_OF_STOCK : OfferStatus.AVAILABLE, timesInStock, missingStock);
+        return status(lang, timesInStock == 0 ? OfferStatus.OUT_OF_STOCK : OfferStatus.AVAILABLE, timesInStock,
+                missingStock);
     }
 
     /** The status pane of the empty row a new offer is put in. */
-    static ItemStack newOffer()
+    static ItemStack newOffer(StallLang lang)
     {
-        return named("white_stained_glass_pane", line("New offer", ChatFormatting.WHITE),
-                List.of(line("Put what buyers pay on the left", ChatFormatting.GRAY),
-                        line("and what they get on the right.", ChatFormatting.GRAY)));
+        return named("white_stained_glass_pane",
+                FabricText.itemLine(lang.text("menu.new-offer.name")),
+                FabricText.itemLines(lang.lines("menu.new-offer.lore")));
     }
 
     /**
      * The status pane. When the shop is out of stock or the buyer can't afford the trade, its lore lists
      * exactly which items are short and by how many.
      */
-    static ItemStack status(OfferStatus status, int timesInStock, List<ItemAmount<ItemStack>> missing)
+    static ItemStack status(StallLang lang, OfferStatus status, int timesInStock, List<ItemAmount<ItemStack>> missing)
     {
         String pane = switch (status)
         {
@@ -104,29 +109,60 @@ final class MenuItems
             case CANNOT_AFFORD, INVENTORY_FULL -> "orange_stained_glass_pane";
             case SHOP_FULL, INCOMPLETE, UNAVAILABLE -> "gray_stained_glass_pane";
         };
-        String stock = timesInStock == 1 ? "1 trade in stock" : timesInStock + " trades in stock";
+        String stock = timesInStock == 1
+                ? lang.text("menu.status.stock-one", "count", "1")
+                : lang.text("menu.status.stock-many", "count", String.valueOf(timesInStock));
         List<Component> lore = new ArrayList<>();
-        lore.add(line(stock, ChatFormatting.GRAY));
+        if (!stock.isEmpty())
+        {
+            lore.add(FabricText.itemLine(stock));
+        }
         if (!missing.isEmpty())
         {
-            lore.add(line(status == OfferStatus.OUT_OF_STOCK ? "The shop is out of:" : "You still need:",
-                    ChatFormatting.GRAY));
+            String header = lang.text(status == OfferStatus.OUT_OF_STOCK
+                    ? "menu.status.missing-stock-header"
+                    : "menu.status.missing-payment-header");
+            if (!header.isEmpty())
+            {
+                lore.add(FabricText.itemLine(header));
+            }
             for (ItemAmount<ItemStack> item : missing)
             {
-                lore.add(Component.empty().withStyle(style -> style.withItalic(false).withColor(ChatFormatting.WHITE))
-                        .append(" " + item.amount() + "× ")
-                        .append(item.item().getHoverName()));
+                lore.add(missingLine(lang, item));
             }
         }
-        return named(pane, line(status.label(), color(status)), lore);
+        return named(pane, FabricText.itemLine(lang.status(status)), lore);
     }
 
-    static ItemStack buyButton(OfferStatus status)
+    private static Component missingLine(StallLang lang, ItemAmount<ItemStack> item)
+    {
+        String token = "\0item\0";
+        String template = lang.text("menu.status.missing-item",
+                "amount", String.valueOf(item.amount()),
+                "item", token);
+        int at = template.indexOf(token);
+        if (at < 0)
+        {
+            return FabricText.itemLine(template);
+        }
+        String before = template.substring(0, at);
+        String after = template.substring(at + token.length());
+        MutableComponent line = Component.empty().withStyle(style -> style.withItalic(false))
+                .append(FabricText.chat(before))
+                .append(item.item().getHoverName());
+        if (!after.isEmpty())
+        {
+            line.append(FabricText.chat(after));
+        }
+        return line;
+    }
+
+    static ItemStack buyButton(StallLang lang, OfferStatus status)
     {
         boolean available = status == OfferStatus.AVAILABLE;
         return named(available ? "lime_dye" : "gray_dye",
-                available ? line("Buy", ChatFormatting.GREEN) : line(status.label(), color(status)),
-                available ? List.of(line("Click to trade", ChatFormatting.GRAY)) : List.of());
+                FabricText.itemLine(available ? lang.text("menu.buy-button.name") : lang.status(status)),
+                available ? FabricText.itemLines(lang.lines("menu.buy-button.lore")) : List.of());
     }
 
     private static ItemStack named(String itemId, Component name, List<Component> lore)
@@ -138,22 +174,6 @@ final class MenuItems
             stack.set(DataComponents.LORE, new ItemLore(lore));
         }
         return stack;
-    }
-
-    private static ChatFormatting color(OfferStatus status)
-    {
-        return switch (status)
-        {
-            case AVAILABLE -> ChatFormatting.GREEN;
-            case OUT_OF_STOCK -> ChatFormatting.RED;
-            case CANNOT_AFFORD, INVENTORY_FULL -> ChatFormatting.GOLD;
-            case SHOP_FULL, INCOMPLETE, UNAVAILABLE -> ChatFormatting.GRAY;
-        };
-    }
-
-    private static Component line(String text, ChatFormatting color)
-    {
-        return Component.literal(text).withStyle(style -> style.withItalic(false).withColor(color));
     }
 
     /** Colored items are looked up by id: Minecraft 26.2 replaced their {@code Items} fields with color collections. */

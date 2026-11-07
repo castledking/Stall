@@ -1,0 +1,70 @@
+# Stall settings.
+#
+# Missing settings are filled in on startup or `/stall admin reload`, and your own settings are kept.
+# Keep config-version as it is: Stall uses it to update this file cleanly when new versions come out.
+config-version: 1
+
+# --- Shops -----------------------------------------------------------------------------------------
+shops:
+  # How many shops a player can own without a `stall.limit.<n>` permission.
+  # Set to 0 if players must be given a `stall.limit.<n>` permission before they can own any.
+  default-limit: 3
+
+  # The highest `stall.limit.<n>` permission tier checked (1 to 1000).
+  # Players with `stall.limit.unlimited` can always own any number of shops.
+  max-limit-tier: 100
+
+  # Most offers one shop can have, from 1 to 6 (one menu row per offer).
+  max-offers: 6
+
+  # Minimum ticks between the first and second Q press when removing an offer (15 ticks = 0.75s, so
+  # holding Q down doesn't delete it by accident). Set to 0 for instant second-press confirmation.
+  offer-remove-cooldown-ticks: 15
+
+  # Which containers can be turned into shops.
+  containers:
+    barrels: true
+    chests: true
+    trapped-chests: true
+    # Whether a chest shop can be a double chest (54 slots of stock).
+    double-chests: true
+    # Whether players with `stall.barrel.large` get 54-slot barrel shops.
+    large-barrels: true
+
+  # Worlds where new shops cannot be created, by world name or dimension id
+  # (such as "world", "world_nether", "world_the_end" or "minecraft:the_end").
+  # Existing shops in these worlds still work.
+  disabled-worlds: []
+
+# --- Protection ------------------------------------------------------------------------------------
+protection:
+  # Keep explosions from destroying shop containers.
+  explosions: true
+
+  # Keep hoppers and hopper minecarts from pulling stock out of shops.
+  hopper-extract: true
+
+  # Let hoppers push items into shops to restock them.
+  hopper-insert: true
+
+# --- Trades ----------------------------------------------------------------------------------------
+trades:
+  # Minimum ticks between buy clicks from the same player, so a double-click doesn't buy twice.
+  buy-cooldown-ticks: 4
+
+  # Tell the shop's owner in chat when they are online and someone buys from their shop.
+  notify-owner: false
+
+  # How often open shop menus redraw to show stock changes, in ticks (20 ticks = 1 second).
+  menu-refresh-ticks: 20
+
+# --- Tokens ----------------------------------------------------------------------------------------
+tokens:
+  # Most tokens `/stall token` or `/stall admin give` hands out at once (1 to 64).
+  max-per-command: 64
+
+  # Whether creative-mode players use up the token in their hand when creating a shop.
+  consume-in-creative: false
+
+  # Give the token item an enchantment glint.
+  glint: true

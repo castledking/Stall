@@ -1,0 +1,194 @@
+# Stall messages and menu text.
+#
+# Use `&` for colors and formatting (`&a` green, `&c` red, `&6` gold, `&7` gray, `&e` yellow, `&8` dark gray,
+# `&f` white, `&l` bold, `&o` italic, `&r` reset, or `&#RRGGBB` for hex colors).
+# Set any chat message to `""` to silence it.
+#
+# Missing keys are filled in on startup or `/stall admin reload`, and your own text is kept.
+# Keep config-version as it is: Stall uses it to update this file cleanly when new versions come out.
+config-version: 1
+
+# Optional prefix put in front of every chat message (for example, "&6[Stall] &r").
+prefix: ""
+
+# --- Token item ------------------------------------------------------------------------------------
+token:
+  name: "&6Stall Token"
+  lore:
+    - "&7Use it on a barrel to turn the"
+    - "&7barrel into your shop."
+
+# --- Words used in messages ------------------------------------------------------------------------
+containers:
+  barrel: "barrel"
+  chest: "chest"
+  trapped-chest: "trapped chest"
+  large-prefix: "large "
+
+limits:
+  unlimited: "no limit"
+
+# --- Menus -----------------------------------------------------------------------------------------
+menu:
+  titles:
+    buyer: "{owner}'s Stall"
+    owner: "Edit {owner}'s Stall"
+    large-barrel: "Large Barrel"
+
+  offer-item:
+    buyer-pay: "&6You pay {amount}×"
+    buyer-get: "&aYou get {amount}×"
+    owner-pay: "&6Buyers pay {amount}×"
+    owner-get: "&aBuyers get {amount}×"
+    edit-lore:
+      - "&7Click with an item: put it in"
+      - "&7Left/right-click: one more/fewer"
+      - "&7Shift-click: a stack more/fewer"
+      - "&7Q: take it out"
+
+  empty-slot:
+    cost-name: "&6Add what buyers pay"
+    reward-name: "&aAdd what buyers get"
+    lore:
+      - "&7Click with an item to put it here"
+
+  remove-button:
+    name: "&cRemove offer"
+    lore:
+      - "&7Press Q, then Q again"
+    armed-name: "&cPress Q again to remove"
+    armed-lore:
+      - "&7Any other click cancels"
+
+  owner-incomplete:
+    name: "&7Not set up yet"
+    lore:
+      - "&7Buyers see this offer once it has"
+      - "&7an item on each side."
+
+  new-offer:
+    name: "&fNew offer"
+    lore:
+      - "&7Put what buyers pay on the left"
+      - "&7and what they get on the right."
+
+  status:
+    available: "&aIn stock"
+    out-of-stock: "&cOut of stock"
+    cannot-afford: "&6You can't afford this"
+    inventory-full: "&6Your inventory is full"
+    shop-full: "&7This shop is full"
+    incomplete: "&7Not set up yet"
+    unavailable: "&7Unavailable"
+    stock-one: "&71 trade in stock"
+    stock-many: "&7{count} trades in stock"
+    missing-stock-header: "&7The shop is out of:"
+    missing-payment-header: "&7You still need:"
+    missing-item: "&f {amount}× {item}"
+
+  buy-button:
+    name: "&aBuy"
+    lore:
+      - "&7Click to trade"
+
+# --- Trades ----------------------------------------------------------------------------------------
+trades:
+  complete: "&aTrade complete."
+  owner-sold: "&e{buyer} bought from your shop at {location}."
+  shop-changed: "&eThis shop just changed. Check its offers again."
+  out-of-stock: "&cThis shop is out of stock for that trade."
+  cannot-afford: "&cYou don't have everything this trade costs."
+  inventory-full: "&cYour inventory doesn't have room for this trade."
+  shop-full: "&cThis shop doesn't have room for your payment."
+  incomplete: "&cThat offer isn't set up yet."
+  too-large: "&cThat trade is too large."
+
+# --- Creating, using and removing shops ------------------------------------------------------------
+shops:
+  created: "&aThis {container} is now your shop. Set up its offers here; sneak and right-click it with an empty hand to come back."
+  created-large: "&aThis {container} is now your shop, with 54 slots of stock. Set up its offers here; sneak and right-click it with an empty hand to come back."
+  reactivated: "&aThis shop was paused because its {container} lost its Stall marker. It's open again."
+  paused: "&eThis shop is paused until its owner opens it again."
+  no-create-permission: "&cYou don't have permission to make shops."
+  no-use-permission: "&cYou don't have permission to use shops."
+  disabled-world: "&cShops can't be made in this world."
+  container-disabled: "&cA {container} can't be turned into a shop on this server."
+  double-chest-disabled: "&cDouble chests can't be turned into shops on this server."
+  cannot-own: "&cYou can't own shops."
+  limit-reached: "&cYou already own {owned} of your {limit} shops. Remove one first."
+  chest-half-unavailable: "&cBoth halves of this chest must be available before it can become a shop."
+  unopened-loot: "&cThis {container} still holds unopened loot. Open it first."
+  belongs-to: "&cThis shop belongs to {owner}."
+  chest-join-blocked: "&cThat would join your chest onto {owner}'s shop. Sneak while placing it to keep it separate."
+  extra-slots-newer: "&cThis shop's extra slots were saved by a newer version of Stall, so they can't be opened here."
+  removed-notify: "&eYour shop was removed. Its token is back in your inventory."
+  removed-at-notify: "&eYour shop at {location} was removed. Its token is back in your inventory."
+  join-reclaim-one: "&eA Stall token is waiting for you from removed shops. Use /stall reclaim to collect."
+  join-reclaim-many: "&e{count} Stall tokens are waiting for you from removed shops. Use /stall reclaim to collect."
+
+# --- Commands --------------------------------------------------------------------------------------
+commands:
+  no-permission: "&cYou don't have permission to do that."
+  players-only: "&cOnly players can do that."
+  usage: "&cUse /stall for commands. Token amounts must be from 1 to {max}."
+  invalid-amount: "&cAmount must be a whole number from 1 to {max}."
+  look-at-shop: "&cLook at a shop first."
+  move-closer: "&cMove closer to the shop and try again."
+  player-offline: "&c{player} isn't online."
+
+  help:
+    header: "&6Stall: use a token on a barrel or chest to make it your shop. Sneak and right-click your shop with an empty hand to set up offers."
+    lines:
+      - "&7/stall token [amount] - get Stall tokens"
+      - "&7/stall list - list your shops"
+      - "&7/stall info - show the shop you're looking at"
+      - "&7/stall remove - remove the shop you're looking at"
+      - "&7/stall reclaim - collect tokens from shops removed while you were away"
+      - "&7/stall preview - see your own shops as a buyer does"
+
+  token:
+    one: "&aHere's a Stall token. Use one on a barrel or chest to make it your shop."
+    many: "&aHere are {amount} Stall tokens. Use one on a barrel or chest to make it your shop."
+
+  list:
+    none-own: "You don't own any shops (limit: {limit}). Use a Stall token on a barrel or chest to make one."
+    own-header: "&6Your shops ({count}, limit: {limit}):"
+    none-other: "&c{player} doesn't own any shops."
+    other-header: "&6{owner}'s shops ({count}):"
+    entry-one: "&7 {location} - 1 offer"
+    entry-many: "&7 {location} - {offers} offers"
+
+  info:
+    header: "&6{owner}'s shop at {location}, a {container}"
+    no-offers: "&7 No offers yet."
+    offer-prefix: "&7 {index}. &r"
+    offer-arrow: "&7 → &r"
+    item-separator: "&7 + &r"
+    item-amount: "{amount}× "
+    nothing-yet: "&8nothing yet"
+    incomplete-suffix: "&8 (not set up yet)"
+
+  remove:
+    extra-stock-not-empty: "&cThis large barrel still holds stock in its extra slots, which an ordinary barrel can't keep. Empty them first, or break the barrel."
+    own: "&aRemoved your shop."
+    other: "&aRemoved {owner}'s shop."
+    token-own-inventory: " Its token is back in your inventory."
+    token-other-inventory: " Its token went back to them."
+    token-owed: " They'll get its token back with /stall reclaim."
+
+  reclaim:
+    none: "&cYou have no tokens waiting."
+    one: "&aHere's your Stall token back."
+    many: "&aHere are your {count} Stall tokens back."
+
+  preview:
+    enabled: "&aYour own shops now open as they do for buyers. Use /stall preview again to stop."
+    disabled: "&aYour own shops open normally again."
+
+  give:
+    token-one: "a Stall token"
+    token-many: "{amount} Stall tokens"
+    received: "&aYou received {tokens}. Use one on a barrel or chest to make it your shop."
+    sent: "&aGave {player} {tokens}."
+
+  reload: "&aReloaded Stall's config.yml and lang.yml."

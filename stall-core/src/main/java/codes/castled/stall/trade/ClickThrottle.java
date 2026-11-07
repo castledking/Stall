@@ -25,8 +25,14 @@ public final class ClickThrottle
     /** Records a click at {@code tick} and returns whether it should be acted on. */
     public synchronized boolean tryAcquire(UUID player, long tick)
     {
+        return tryAcquire(player, tick, cooldownTicks);
+    }
+
+    /** Records a click at {@code tick} and returns whether it should be acted on. */
+    public synchronized boolean tryAcquire(UUID player, long tick, long cooldown)
+    {
         Long last = lastAccepted.get(player);
-        if (last != null && tick - last < cooldownTicks)
+        if (last != null && tick - last < cooldown)
         {
             return false;
         }
