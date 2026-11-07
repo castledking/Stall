@@ -10,7 +10,7 @@
   <a href="https://castled.codes"><img alt="CASTLED CODEX" src="https://castled.codes/assets/logo-banner.png" width="140" height="35"></a>
 </p>
 
-**Stall** is a player shop system for Minecraft servers. It runs as a plugin on Spigot, Paper, Purpur and Folia, and as a Fabric mod on dedicated servers. Players turn an ordinary barrel or chest into a shop, stock it with items, and set up trades that other players can buy with a click.
+**Stall** is a player shop system for Minecraft servers. It runs as a plugin on Spigot, Paper, Purpur and Folia, and as a Fabric mod on dedicated servers. Players turn an ordinary barrel, chest or shulker box into a shop, stock it with items, and set up trades that other players can buy with a click.
 
 Stall shops are real blocks with real stock. There is no client mod and no resource pack, and no stock kept in a plugin file: what a shop sells is whatever sits in its container, and players on an unmodified client can use every part of it.
 
@@ -21,18 +21,20 @@ Stall shops are real blocks with real stock. There is no client mod and no resou
 ## How it works
 
 1. **Get a Stall token** with `/stall token`.
-2. **Use the token on a barrel or chest** you're allowed to open. It becomes your shop, and whatever is inside is your stock.
+2. **Use the token on a barrel, chest or shulker box** you're allowed to open. It becomes your shop, and whatever is inside is your stock.
 3. **Set up offers.** Sneak and right-click your shop with an empty hand to add trades: up to two items the buyer pays, and up to three items they get back, each with its own quantity. Click an item from your inventory into a slot to add it; your item stays with you.
 4. **Players buy with a click.** Anyone else who right-clicks your shop sees your offers and can buy any offer the shop has stock for.
 5. **Move it whenever you like.** Break your shop or use `/stall remove` and the token comes back to you, ready to set up somewhere else.
 
-Shops can be barrels, chests or trapped chests. A double chest is one shop with 54 slots of stock, and players with `stall.barrel.large` get barrels that hold 54 too.
+Shops can be barrels, chests, trapped chests or shulker boxes. A double chest is one shop with 54 slots of stock, and players with `stall.barrel.large` or `stall.shulker.large` get barrels or shulker boxes that hold 54 too.
 
 ## Features
 
-- **Physical shops:** a shop is a vanilla barrel, chest or trapped chest, and its contents are the shop's stock. Payments go into the same container.
+- **Physical shops:** a shop is a vanilla barrel, chest, trapped chest or shulker box, and its contents are the shop's stock. Payments go into the same container.
+- **Custom furniture & block models:** supports custom blocks and models from **CraftEngine**, **Nexo**, and **Oraxen** as shop containers, with configurable stock capacity (9 to 54 slots) and custom inventory titles.
+- **Configurable tokens:** customize the token item (such as `player_head` or `paper`), set custom model data, or apply Base64/minecraft-heads dev textures.
 - **Double chests:** a double chest is one shop covering both halves, 54 slots of stock. Owners can expand their chest shops; other players must place separate chests.
-- **Large barrels:** give players `stall.barrel.large` and their barrel shops hold 54 slots of stock instead of 27. The owner opens one 54-slot view: the barrel's own 27 slots on top, and 27 extra slots below, saved on the barrel itself so they stay in step with it.
+- **Large containers:** give players `stall.barrel.large` or `stall.shulker.large` and their barrel or shulker box shops hold 54 slots of stock instead of 27. The owner opens one 54-slot view: the container's own 27 slots on top, and 27 extra slots below, saved on the block itself so they stay in step with it. Breaking a shulker shop drops all stock safely and returns an empty shulker box along with the Stall token.
 - **Two-for-three trades:** every offer has two payment slots and three reward slots. Each slot holds up to one stack of its item, so a buyer pays up to two stacks and gets up to three, 192 of most items. A slot can be left empty. For example, *1 emerald → 16 cobblestone + 4 coal*, or *1 diamond + 2 gold ingots → 8 iron ingots + 4 redstone + 1 lapis*.
 - **Several offers per shop:** one row per offer, so a shop with three offers fits in a barrel-sized menu and a shop with up to six still fits on one page.
 - **Clear availability:** each offer shows whether it's in stock, whether you can afford it, and whether the shop has room for your payment.
@@ -70,6 +72,8 @@ LuckPerms is optional on both platforms. Without a permission plugin or mod, Sta
 | `/stall reclaim` | Collect tokens from shops removed while you were offline. |
 | `/stall preview` | See your own shops the way buyers do, to test them. |
 | `/stall admin give <player> [amount]` | Give a player Stall tokens. |
+| `/stall admin max <limit\|offers> <set\|add\|take> <player> <amount>` | Set, add, or take from a player's shop limit or max offers override. |
+| `/stall admin max <limit\|offers> reset <player>` | Reset a player's shop limit or max offers override. |
 | `/stall admin reload` | Reload `config.yml` and `lang.yml`. |
 
 ## Permissions
@@ -79,11 +83,13 @@ On Fabric, the same permissions are checked through Fabric API's permission API,
 | Permission | Default | |
 | --- | --- | --- |
 | `stall.use` | everyone | Open shops and buy from them. |
-| `stall.create` | everyone | Turn a barrel or chest into a shop with a token. |
+| `stall.create` | everyone | Turn a barrel, chest or shulker box into a shop with a token. |
 | `stall.token` | everyone | Use `/stall token`. |
 | `stall.limit.<n>` | none | Own up to `n` shops, from 0 to 100. The highest tier you have wins. |
 | `stall.limit.unlimited` | op | Own any number of shops. |
+| `stall.offers.<n>` | none | Have up to `n` offers per shop (1 to 6). Overrides server default. |
 | `stall.barrel.large` | none | Barrel shops hold 54 slots of stock instead of 27. Shops made before the permission was given grow the next time their owner opens them; a large barrel stays large. |
+| `stall.shulker.large` | none | Shulker box shops hold 54 slots of stock instead of 27. |
 | `stall.admin` | op | Edit and remove any shop, list anyone's shops, and use `/stall admin`. |
 
 Players without a `stall.limit` tier can own 3 shops.

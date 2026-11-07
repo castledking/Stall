@@ -1,5 +1,6 @@
 package codes.castled.stall.fabric;
 
+import codes.castled.stall.config.StallConfig;
 import codes.castled.stall.config.StallLang;
 import codes.castled.stall.offer.OfferItem;
 import codes.castled.stall.offer.OfferStatus;
@@ -11,10 +12,12 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemLore;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /** The display items the shop menus are drawn with. None of them can ever leave a menu. */
 final class MenuItems
@@ -55,16 +58,18 @@ final class MenuItems
     }
 
     /** An empty item slot in the owner menu. */
-    static ItemStack emptyOfferSlot(StallLang lang, boolean cost)
+    static ItemStack emptyOfferSlot(StallConfig config, StallLang lang, boolean cost)
     {
-        return named("light_gray_stained_glass_pane",
+        Item item = item(cost ? config.iconEmptyCostSlot() : config.iconEmptyRewardSlot(), "light_gray_stained_glass_pane");
+        return named(item,
                 FabricText.itemLine(lang.text(cost ? "menu.empty-slot.cost-name" : "menu.empty-slot.reward-name")),
                 FabricText.itemLines(lang.lines("menu.empty-slot.lore")));
     }
 
-    static ItemStack removeButton(StallLang lang, boolean armed)
+    static ItemStack removeButton(StallConfig config, StallLang lang, boolean armed)
     {
-        ItemStack stack = named("barrier",
+        Item item = item(config.iconRemoveButton(), "barrier");
+        ItemStack stack = named(item,
                 FabricText.itemLine(lang.text(armed ? "menu.remove-button.armed-name" : "menu.remove-button.name")),
                 FabricText.itemLines(lang.lines(armed ? "menu.remove-button.armed-lore" : "menu.remove-button.lore")));
         if (armed)
@@ -75,23 +80,25 @@ final class MenuItems
     }
 
     /** The status pane of an offer in the owner menu. */
-    static ItemStack ownerStatus(StallLang lang, boolean complete, int timesInStock,
+    static ItemStack ownerStatus(StallConfig config, StallLang lang, boolean complete, int timesInStock,
             List<ItemAmount<ItemStack>> missingStock)
     {
         if (!complete)
         {
-            return named("gray_stained_glass_pane",
+            Item item = item(config.iconStatusIncomplete(), "gray_stained_glass_pane");
+            return named(item,
                     FabricText.itemLine(lang.text("menu.owner-incomplete.name")),
                     FabricText.itemLines(lang.lines("menu.owner-incomplete.lore")));
         }
-        return status(lang, timesInStock == 0 ? OfferStatus.OUT_OF_STOCK : OfferStatus.AVAILABLE, timesInStock,
+        return status(config, lang, timesInStock == 0 ? OfferStatus.OUT_OF_STOCK : OfferStatus.AVAILABLE, timesInStock,
                 missingStock);
     }
 
     /** The status pane of the empty row a new offer is put in. */
-    static ItemStack newOffer(StallLang lang)
+    static ItemStack newOffer(StallConfig config, StallLang lang)
     {
-        return named("white_stained_glass_pane",
+        Item item = item(config.iconStatusNewOffer(), "white_stained_glass_pane");
+        return named(item,
                 FabricText.itemLine(lang.text("menu.new-offer.name")),
                 FabricText.itemLines(lang.lines("menu.new-offer.lore")));
     }
@@ -100,15 +107,26 @@ final class MenuItems
      * The status pane. When the shop is out of stock or the buyer can't afford the trade, its lore lists
      * exactly which items are short and by how many.
      */
-    static ItemStack status(StallLang lang, OfferStatus status, int timesInStock, List<ItemAmount<ItemStack>> missing)
+    static ItemStack status(StallConfig config, StallLang lang, OfferStatus status, int timesInStock, List<ItemAmount<ItemStack>> missing)
     {
-        String pane = switch (status)
+        String fallback = switch (status)
         {
             case AVAILABLE -> "lime_stained_glass_pane";
             case OUT_OF_STOCK -> "red_stained_glass_pane";
             case CANNOT_AFFORD, INVENTORY_FULL -> "orange_stained_glass_pane";
             case SHOP_FULL, INCOMPLETE, UNAVAILABLE -> "gray_stained_glass_pane";
         };
+        String iconKey = switch (status)
+        {
+            case AVAILABLE -> config.iconStatusAvailable();
+            case OUT_OF_STOCK -> config.iconStatusOutOfStock();
+            case CANNOT_AFFORD -> config.iconStatusCannotAfford();
+            case INVENTORY_FULL -> config.iconStatusInventoryFull();
+            case SHOP_FULL -> config.iconStatusShopFull();
+            case INCOMPLETE -> config.iconStatusIncomplete();
+            case UNAVAILABLE -> config.iconStatusUnavailable();
+        };
+        Item item = item(iconKey, fallback);
         String stock = timesInStock == 1
                 ? lang.text("menu.status.stock-one", "count", "1")
                 : lang.text("menu.status.stock-many", "count", String.valueOf(timesInStock));
@@ -126,12 +144,12 @@ final class MenuItems
             {
                 lore.add(FabricText.itemLine(header));
             }
-            for (ItemAmount<ItemStack> item : missing)
+            for (ItemAmount<ItemStack> itemAmount : missing)
             {
-                lore.add(missingLine(lang, item));
+                lore.add(missingLine(lang, itemAmount));
             }
         }
-        return named(pane, FabricText.itemLine(lang.status(status)), lore);
+        return named(item, FabricText.itemLine(lang.status(status)), lore);
     }
 
     private static Component missingLine(StallLang lang, ItemAmount<ItemStack> item)
@@ -157,17 +175,19 @@ final class MenuItems
         return line;
     }
 
-    static ItemStack buyButton(StallLang lang, OfferStatus status)
+    static ItemStack buyButton(StallConfig config, StallLang lang, OfferStatus status)
     {
         boolean available = status == OfferStatus.AVAILABLE;
-        return named(available ? "lime_dye" : "gray_dye",
+        String fallback = available ? "lime_dye" : "gray_dye";
+        Item item = item(available ? config.iconBuyAvailable() : config.iconBuyUnavailable(), fallback);
+        return named(item,
                 FabricText.itemLine(available ? lang.text("menu.buy-button.name") : lang.status(status)),
                 available ? FabricText.itemLines(lang.lines("menu.buy-button.lore")) : List.of());
     }
 
-    private static ItemStack named(String itemId, Component name, List<Component> lore)
+    private static ItemStack named(Item item, Component name, List<Component> lore)
     {
-        ItemStack stack = new ItemStack(item(itemId));
+        ItemStack stack = new ItemStack(item);
         stack.set(DataComponents.CUSTOM_NAME, name);
         if (!lore.isEmpty())
         {
@@ -177,8 +197,21 @@ final class MenuItems
     }
 
     /** Colored items are looked up by id: Minecraft 26.2 replaced their {@code Items} fields with color collections. */
-    private static Item item(String id)
+    private static Item item(String id, String fallbackId)
     {
-        return BuiltInRegistries.ITEM.getValue(Identifier.withDefaultNamespace(id));
+        if (id != null && !id.isBlank())
+        {
+            String clean = id.trim().toLowerCase(Locale.ROOT);
+            Identifier parsed = clean.contains(":") ? Identifier.tryParse(clean) : Identifier.withDefaultNamespace(clean);
+            if (parsed != null && BuiltInRegistries.ITEM.containsKey(parsed))
+            {
+                Item found = BuiltInRegistries.ITEM.getValue(parsed);
+                if (found != null && found != Items.AIR)
+                {
+                    return found;
+                }
+            }
+        }
+        return BuiltInRegistries.ITEM.getValue(Identifier.withDefaultNamespace(fallbackId));
     }
 }

@@ -8,6 +8,7 @@ import codes.castled.stall.shop.Tokens;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -22,7 +23,9 @@ import net.minecraft.world.phys.HitResult;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Predicate;
 
 /** {@code /stall} and its subcommands. */
@@ -34,8 +37,36 @@ final class StallCommands
 
     static void register(CommandDispatcher<CommandSourceStack> dispatcher, FabricShops shops)
     {
-        dispatcher.register(Commands.literal("stall")
-                .executes(context -> help(context.getSource(), shops))
+        register(dispatcher, shops, "stall");
+        for (String alias : shops.config().commandAliases())
+        {
+            if (!alias.equalsIgnoreCase("stall"))
+            {
+                register(dispatcher, shops, alias);
+            }
+        }
+    }
+
+    private static void register(CommandDispatcher<CommandSourceStack> dispatcher, FabricShops shops, String name)
+    {
+        LiteralArgumentBuilder<CommandSourceStack> admin = Commands.literal("admin")
+                .requires(source -> StallPermissions.has(source, StallPermissions.ADMIN))
+                .then(Commands.literal("reload")
+                        .executes(context -> reload(context.getSource(), shops)))
+                .then(Commands.literal("give")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(
+                                        Arrays.asList(context.getSource().getServer().getPlayerNames()), builder))
+                                .executes(context -> give(context.getSource(), shops,
+                                        StringArgumentType.getString(context, "player"), 1))
+                                .then(Commands.argument("amount", IntegerArgumentType.integer(1, Tokens.MAX_PER_COMMAND))
+                                        .executes(context -> give(context.getSource(), shops,
+                                                StringArgumentType.getString(context, "player"),
+                                                IntegerArgumentType.getInteger(context, "amount"))))))
+                .then(buildMaxCommand(shops));
+
+        dispatcher.register(Commands.literal(name)
+                .executes(context -> help(context.getSource(), shops, name))
                 .then(Commands.literal("token")
                         .requires(source -> StallPermissions.has(source, StallPermissions.TOKEN))
                         .executes(context -> token(context.getSource(), shops, 1))
@@ -54,32 +85,81 @@ final class StallCommands
                 .then(Commands.literal("remove").executes(context -> remove(context.getSource(), shops)))
                 .then(Commands.literal("reclaim").executes(context -> reclaim(context.getSource(), shops)))
                 .then(Commands.literal("preview").executes(context -> preview(context.getSource(), shops)))
-                .then(Commands.literal("admin")
-                        .requires(source -> StallPermissions.has(source, StallPermissions.ADMIN))
-                        .then(Commands.literal("reload")
-                                .executes(context -> reload(context.getSource(), shops)))
-                        .then(Commands.literal("give")
-                                .then(Commands.argument("player", StringArgumentType.word())
-                                        .suggests((context, builder) -> SharedSuggestionProvider.suggest(
-                                                Arrays.asList(context.getSource().getServer().getPlayerNames()), builder))
-                                        .executes(context -> give(context.getSource(), shops,
-                                                StringArgumentType.getString(context, "player"), 1))
-                                        .then(Commands.argument("amount", IntegerArgumentType.integer(1, Tokens.MAX_PER_COMMAND))
-                                                .executes(context -> give(context.getSource(), shops,
-                                                        StringArgumentType.getString(context, "player"),
-                                                        IntegerArgumentType.getInteger(context, "amount"))))))));
+                .then(admin));
     }
 
-    private static int help(CommandSourceStack source, FabricShops shops)
+    private static LiteralArgumentBuilder<CommandSourceStack> buildMaxCommand(FabricShops shops)
+    {
+        return Commands.literal("max")
+                .then(buildMaxBranch(shops, true))
+                .then(buildMaxBranch(shops, false));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> buildMaxBranch(FabricShops shops, boolean isLimit)
+    {
+        return Commands.literal(isLimit ? "limit" : "offers")
+                .then(Commands.literal("reset")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(
+                                        Arrays.asList(context.getSource().getServer().getPlayerNames()), builder))
+                                .executes(context -> maxReset(context.getSource(), shops, isLimit,
+                                        StringArgumentType.getString(context, "player")))))
+                .then(Commands.literal("set")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(
+                                        Arrays.asList(context.getSource().getServer().getPlayerNames()), builder))
+                                .then(Commands.argument("amount", IntegerArgumentType.integer(isLimit ? 0 : 1, isLimit ? Integer.MAX_VALUE : Shop.MAX_OFFERS))
+                                        .executes(context -> maxUpdate(context.getSource(), shops, isLimit, "set",
+                                                StringArgumentType.getString(context, "player"),
+                                                IntegerArgumentType.getInteger(context, "amount"))))))
+                .then(Commands.literal("add")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(
+                                        Arrays.asList(context.getSource().getServer().getPlayerNames()), builder))
+                                .then(Commands.argument("amount", IntegerArgumentType.integer(0))
+                                        .executes(context -> maxUpdate(context.getSource(), shops, isLimit, "add",
+                                                StringArgumentType.getString(context, "player"),
+                                                IntegerArgumentType.getInteger(context, "amount"))))))
+                .then(Commands.literal("take")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(
+                                        Arrays.asList(context.getSource().getServer().getPlayerNames()), builder))
+                                .then(Commands.argument("amount", IntegerArgumentType.integer(0))
+                                        .executes(context -> maxUpdate(context.getSource(), shops, isLimit, "take",
+                                                StringArgumentType.getString(context, "player"),
+                                                IntegerArgumentType.getInteger(context, "amount"))))));
+    }
+
+    private static int help(CommandSourceStack source, FabricShops shops, String name)
     {
         StallLang lang = shops.lang();
         FabricText.sendSuccess(source, lang.chat("commands.help.header"), false);
         List<String> lines = lang.lines("commands.help.lines");
+        String prefix = "/" + name.toLowerCase(Locale.ROOT) + " ";
+        int count = 0;
         for (String line : lines)
         {
-            FabricText.sendSuccess(source, line, false);
+            if (line.contains("/stall token") && !StallPermissions.has(source, StallPermissions.TOKEN))
+            {
+                continue;
+            }
+            FabricText.sendSuccess(source, formatHelpLine(line, prefix), false);
+            count++;
         }
-        return lines.size();
+        if (StallPermissions.has(source, StallPermissions.ADMIN))
+        {
+            for (String line : lang.lines("commands.help.admin-lines"))
+            {
+                FabricText.sendSuccess(source, formatHelpLine(line, prefix), false);
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static String formatHelpLine(String line, String prefix)
+    {
+        return prefix.equals("/stall ") ? line : line.replace("/stall ", prefix);
     }
 
     private static int token(CommandSourceStack source, FabricShops shops, int amount) throws CommandSyntaxException
@@ -104,7 +184,7 @@ final class StallCommands
         StallLang lang = shops.lang();
         ServerPlayer player = source.getPlayerOrException();
         List<Shop<ItemStack>> owned = ownedBy(shops, shop -> shop.isOwner(player.getUUID()));
-        String limit = shops.describeLimit(StallPermissions.shopLimit(player, shops.config()));
+        String limit = shops.describeLimit(shops.shopLimit(player));
         if (owned.isEmpty())
         {
             FabricText.sendSuccess(source, lang.chat("commands.list.none-own", "limit", limit), false);
@@ -237,6 +317,8 @@ final class StallCommands
     private static int reload(CommandSourceStack source, FabricShops shops)
     {
         shops.reloadConfig();
+        StallCommands.register(source.getServer().getCommands().getDispatcher(), shops);
+        source.getServer().getPlayerList().getPlayers().forEach(source.getServer().getCommands()::sendCommands);
         FabricText.sendSuccess(source, shops.lang().chat("commands.reload"), true);
         return 1;
     }
@@ -316,5 +398,95 @@ final class StallCommands
             return Optional.empty();
         }
         return shops.shopAt(player.level(), blockHit.getBlockPos());
+    }
+
+    private static UUID resolvePlayerUuid(CommandSourceStack source, FabricShops shops, String playerName)
+    {
+        ServerPlayer target = source.getServer().getPlayerList().getPlayerByName(playerName);
+        if (target != null)
+        {
+            return target.getUUID();
+        }
+        for (Shop<ItemStack> shop : shops.registry().all())
+        {
+            if (shop.ownerName().equalsIgnoreCase(playerName))
+            {
+                return shop.owner();
+            }
+        }
+        return UUID.nameUUIDFromBytes(("OfflinePlayer:" + playerName).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    private static int maxReset(CommandSourceStack source, FabricShops shops, boolean isLimit, String playerName)
+    {
+        ServerPlayer target = source.getServer().getPlayerList().getPlayerByName(playerName);
+        UUID uuid = resolvePlayerUuid(source, shops, playerName);
+        if (isLimit)
+        {
+            shops.playerOverrides().clearLimit(uuid);
+        }
+        else
+        {
+            shops.playerOverrides().clearOffers(uuid);
+        }
+        int current = isLimit ? shops.playerLimit(uuid, target) : shops.maxOffers(uuid, target);
+        FabricText.sendSuccess(source, shops.lang().chat("commands.max-reset",
+                "player", playerName,
+                "type", isLimit ? "shop" : "offer",
+                "current", String.valueOf(current)), true);
+        return 1;
+    }
+
+    private static int maxUpdate(CommandSourceStack source, FabricShops shops, boolean isLimit, String action, String playerName, int amount)
+    {
+        ServerPlayer target = source.getServer().getPlayerList().getPlayerByName(playerName);
+        UUID uuid = resolvePlayerUuid(source, shops, playerName);
+        if (isLimit)
+        {
+            int current = shops.playerLimit(uuid, target);
+            int newAmount = switch (action)
+            {
+                case "set" -> amount;
+                case "add" -> current + amount;
+                case "take" -> Math.max(0, current - amount);
+                default -> amount;
+            };
+            shops.playerOverrides().setLimit(uuid, playerName, newAmount);
+            if (target != null && target != source.getPlayer())
+            {
+                FabricText.send(target, shops.lang().chat("commands.max-updated-player",
+                        "type", "shop", "current", String.valueOf(newAmount)));
+            }
+            FabricText.sendSuccess(source, shops.lang().chat("commands.max-updated",
+                    "player", playerName,
+                    "type", "shop",
+                    "action", action,
+                    "amount", String.valueOf(amount),
+                    "current", String.valueOf(newAmount)), true);
+        }
+        else
+        {
+            int current = shops.maxOffers(uuid, target);
+            int newAmount = switch (action)
+            {
+                case "set" -> Math.clamp(amount, 1, Shop.MAX_OFFERS);
+                case "add" -> Math.clamp(current + amount, 1, Shop.MAX_OFFERS);
+                case "take" -> Math.clamp(current - amount, 1, Shop.MAX_OFFERS);
+                default -> Math.clamp(amount, 1, Shop.MAX_OFFERS);
+            };
+            shops.playerOverrides().setOffers(uuid, playerName, newAmount);
+            if (target != null && target != source.getPlayer())
+            {
+                FabricText.send(target, shops.lang().chat("commands.max-updated-player",
+                        "type", "offer", "current", String.valueOf(newAmount)));
+            }
+            FabricText.sendSuccess(source, shops.lang().chat("commands.max-updated",
+                    "player", playerName,
+                    "type", "offer",
+                    "action", action,
+                    "amount", String.valueOf(amount),
+                    "current", String.valueOf(newAmount)), true);
+        }
+        return 1;
     }
 }

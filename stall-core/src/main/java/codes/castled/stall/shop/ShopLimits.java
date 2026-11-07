@@ -31,6 +31,27 @@ public final class ShopLimits
         return "limit." + limit;
     }
 
+    public static String offersPermission(int offers)
+    {
+        return "offers." + offers;
+    }
+
+    /**
+     * Resolves the maximum offers per shop for a player from permissions (e.g. {@code stall.offers.6}),
+     * falling back to {@code defaultOffers}.
+     */
+    public static int offersFor(Predicate<String> hasPermission, int defaultOffers)
+    {
+        for (int offers = Shop.MAX_OFFERS; offers >= 1; offers--)
+        {
+            if (hasPermission.test(offersPermission(offers)))
+            {
+                return offers;
+            }
+        }
+        return Math.clamp(defaultOffers, 1, Shop.MAX_OFFERS);
+    }
+
     /**
      * @param hasPermission whether the player has a permission, named without the {@code stall.} prefix
      */

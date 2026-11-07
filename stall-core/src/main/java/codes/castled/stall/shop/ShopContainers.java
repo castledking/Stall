@@ -9,19 +9,42 @@ public final class ShopContainers
     public static final String BARREL = "minecraft:barrel";
     public static final String CHEST = "minecraft:chest";
     public static final String TRAPPED_CHEST = "minecraft:trapped_chest";
+    public static final String SHULKER_BOX = "minecraft:shulker_box";
 
     private ShopContainers()
     {
     }
 
-    /** What players call the container, for messages: "barrel", "chest" or "trapped chest". */
+    /** Whether the container id is any shulker box (undyed or dyed). */
+    public static boolean isShulkerBox(String id)
+    {
+        return id != null && (id.equals(SHULKER_BOX) || (id.startsWith("minecraft:") && id.endsWith("_shulker_box")));
+    }
+
+    /** What players call the container, for messages: "barrel", "chest", "trapped chest" or "shulker box". */
     public static String describe(String id)
     {
+        if (id == null || id.isBlank())
+        {
+            return "shop";
+        }
+        if (isShulkerBox(id))
+        {
+            return "shulker box";
+        }
         return switch (id)
         {
             case CHEST -> "chest";
             case TRAPPED_CHEST -> "trapped chest";
-            default -> "barrel";
+            case BARREL -> "barrel";
+            default -> {
+                String name = id.startsWith("custom:") ? id.substring("custom:".length()) : id;
+                if (name.contains(":"))
+                {
+                    name = name.substring(name.indexOf(':') + 1);
+                }
+                yield name.replace('_', ' ').replace('-', ' ');
+            }
         };
     }
 }

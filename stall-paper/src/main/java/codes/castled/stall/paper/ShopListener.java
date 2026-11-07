@@ -1,9 +1,11 @@
 package codes.castled.stall.paper;
 
+import codes.castled.stall.paper.custom.CustomBlocks;
 import codes.castled.stall.shop.Shop;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
+import org.bukkit.block.Container;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
@@ -64,7 +66,7 @@ final class ShopListener implements Listener
         }
         Optional<Shop<ItemStack>> shop = shops.shopAt(block);
         shop.ifPresent(shops::reconcile);
-        if (shop.isEmpty() || !shops.registry().isCurrent(shop.get()) || !PaperContainers.isSupported(block))
+        if (shop.isEmpty() || !shops.registry().isCurrent(shop.get()) || !PaperContainers.isSupported(block, shops.config()))
         {
             return;
         }
@@ -95,6 +97,11 @@ final class ShopListener implements Listener
         // barrel's 54-slot view opens at HIGH below, once protection has allowed the click.
         if (owner)
         {
+            if (CustomBlocks.isSupportedCustomBlock(block, shops.config()))
+            {
+                event.setCancelled(true);
+                shops.openStock(player, shop.get());
+            }
             return;
         }
         // Sneaking with an item in hand places it against the container instead of opening it, so let
@@ -156,7 +163,7 @@ final class ShopListener implements Listener
     void onPlace(BlockPlaceEvent event)
     {
         Block placed = event.getBlockPlaced();
-        if (!PaperContainers.isSupported(placed) || PaperContainers.isBarrel(placed))
+        if (!PaperContainers.isSupported(placed) || PaperContainers.isSingleBlockContainer(placed))
         {
             return;
         }
@@ -198,7 +205,7 @@ final class ShopListener implements Listener
         Player player = event.getPlayer();
         if (block == null || player.getGameMode() == GameMode.SPECTATOR
                 || !FoliaSupport.owns(block.getWorld(), block.getX() >> 4, block.getZ() >> 4)
-                || !PaperContainers.isSupported(block))
+                || !PaperContainers.isSupported(block, shops.config()))
         {
             return;
         }
@@ -318,6 +325,18 @@ final class ShopListener implements Listener
         Player player = event.getPlayer();
         if (shop.isEmpty() || shop.get().isOwner(player.getUniqueId()) || player.hasPermission("stall.admin"))
         {
+            if (shop.isPresent() && PaperContainers.isShulkerBox(event.getBlock())
+                    && event.getBlock().getState() instanceof Container container)
+            {
+                for (ItemStack stack : container.getInventory().getContents())
+                {
+                    if (!BukkitItems.isEmpty(stack))
+                    {
+                        event.getBlock().getWorld().dropItemNaturally(event.getBlock().getLocation(), stack);
+                    }
+                }
+                container.getInventory().clear();
+            }
             return;
         }
         event.setCancelled(true);

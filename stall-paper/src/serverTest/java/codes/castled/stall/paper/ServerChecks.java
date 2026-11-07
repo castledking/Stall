@@ -265,12 +265,21 @@ public final class ServerChecks
         StallCommands commands = new StallCommands(shops);
         List<String> messages = new ArrayList<>();
         CommandSender ordinary = sender(messages, false);
+        commands.onCommand(ordinary, null, "stall", new String[]{});
+        check(messages.stream().noneMatch(m -> m.contains("admin")), "ordinary player saw admin commands in /stall");
+        messages.clear();
+        commands.onCommand(ordinary, null, "shop", new String[]{});
+        check(messages.stream().anyMatch(m -> m.contains("/shop list")), "alias did not update help prefix: " + messages);
+        check(messages.stream().noneMatch(m -> m.contains("/stall ")), "raw /stall command leaked into alias help: " + messages);
         commands.onCommand(ordinary, null, "stall", new String[]{"admin", "give", "Nobody", "1"});
         check(messages.getLast().contains("permission"), "admin command bypassed its permission");
         commands.onCommand(ordinary, null, "stall", new String[]{"list", "Nobody"});
         check(messages.getLast().contains("permission"), "listing someone else's shops bypassed its permission");
         check(!commands.onTabComplete(ordinary, null, "stall", new String[]{""}).contains("admin"), "admin tab leaked");
         CommandSender admin = sender(messages, true);
+        messages.clear();
+        commands.onCommand(admin, null, "stall", new String[]{});
+        check(messages.stream().anyMatch(m -> m.contains("admin")), "admin did not see admin commands in /stall");
         for (String amount : List.of("0", "-1", "65", "999999999999", "nope"))
         {
             commands.onCommand(admin, null, "stall", new String[]{"token", amount});

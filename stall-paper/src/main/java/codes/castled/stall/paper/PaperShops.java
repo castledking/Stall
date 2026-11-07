@@ -1,9 +1,12 @@
 package codes.castled.stall.paper;
 
+import codes.castled.stall.config.CustomBlockSpec;
 import codes.castled.stall.config.StallConfig;
 import codes.castled.stall.config.StallLang;
 import codes.castled.stall.menu.OfferEditor;
 import codes.castled.stall.offer.Offer;
+import codes.castled.stall.paper.custom.CustomBlocks;
+import codes.castled.stall.shop.PlayerOverrides;
 import codes.castled.stall.shop.Shop;
 import codes.castled.stall.shop.ShopAnchor;
 import codes.castled.stall.shop.ShopLimits;
@@ -72,6 +75,8 @@ final class PaperShops
     private volatile StallLang lang = StallLang.defaults();
     private ShopPersistence<ItemStack> persistence;
     private PaperExtraStock extraStock;
+    private PaperCustomStock customStock;
+    private final PlayerOverrides playerOverrides;
     private final AtomicLong currentTick = new AtomicLong();
     private final SchedulerFacade scheduler;
 
@@ -79,6 +84,7 @@ final class PaperShops
     {
         this.plugin = plugin;
         this.scheduler = new SchedulerFacade(plugin);
+        this.playerOverrides = new PlayerOverrides(plugin.getDataFolder().toPath().resolve("overrides.json"), storeLog());
     }
 
     SchedulerFacade scheduler() { return scheduler; }
@@ -95,6 +101,10 @@ final class PaperShops
         this.config = StallConfig.load(folder, log);
         this.lang = StallLang.load(folder, log);
         refreshOpenMenus();
+        if (plugin instanceof StallPlugin stallPlugin)
+        {
+            stallPlugin.registerAliases();
+        }
     }
 
     private StoreLog storeLog()
@@ -208,6 +218,7 @@ final class PaperShops
         Path directory = levelDirectory().resolve("stall");
         PaperItemCodec items = new PaperItemCodec();
         extraStock = new PaperExtraStock(plugin, items);
+        customStock = new PaperCustomStock(plugin, directory, items);
         if (!CombinedInventories.available())
         {
             plugin.getLogger().log(Level.WARNING, "Large barrels are unavailable on this server: their owners can't "
@@ -228,6 +239,10 @@ final class PaperShops
     void stopStorage()
     {
         flushAllExtraStock();
+        if (customStock != null)
+        {
+            customStock.flushAll();
+        }
         if (persistence != null)
         {
             persistence.close();
@@ -361,7 +376,7 @@ final class PaperShops
     Optional<Shop<ItemStack>> shopAt(Block block)
     {
         Optional<Shop<ItemStack>> shop = registry.at(locate(block));
-        if (shop.isPresent() || !PaperContainers.isSupported(block))
+        if (shop.isPresent() || !PaperContainers.isSupported(block, config))
         {
             return shop;
         }
@@ -376,13 +391,23 @@ final class PaperShops
     Optional<PaperStock> stock(Shop<ItemStack> shop)
     {
         Optional<Block> anchor = block(shop);
-        Optional<Inventory> inventory = anchor.flatMap(PaperContainers::inventory);
-        if (inventory.isEmpty())
+        if (anchor.isEmpty())
         {
             return Optional.empty();
         }
         Block block = anchor.get();
-        if (shop.largeStock() && extraStock != null && PaperContainers.isBarrel(block))
+        Optional<CustomBlockSpec> customSpec = CustomBlocks.findSpec(block, config);
+        if (customSpec.isPresent() && customStock != null)
+        {
+            Inventory customInv = customStock.inventory(shop, block, customSpec.get());
+            return Optional.of(PaperStock.of(customInv));
+        }
+        Optional<Inventory> inventory = PaperContainers.inventory(block);
+        if (inventory.isEmpty())
+        {
+            return Optional.empty();
+        }
+        if (shop.largeStock() && extraStock != null && PaperContainers.isSingleBlockContainer(block))
         {
             Inventory extra = extraStock.inventory(shop, block);
             if (extra != null)
@@ -412,9 +437,55 @@ final class PaperShops
 
     int shopLimit(Permissible player)
     {
+        if (player instanceof Player online)
+        {
+            java.util.OptionalInt override = playerOverrides.limitOverride(online.getUniqueId());
+            if (override.isPresent())
+            {
+                return override.getAsInt();
+            }
+        }
         StallConfig current = config;
         return ShopLimits.limitFor(path -> player.hasPermission("stall." + path),
                 current.defaultShopLimit(), current.maxLimitTier());
+    }
+
+    int playerLimit(UUID playerId, Permissible permissible)
+    {
+        java.util.OptionalInt override = playerOverrides.limitOverride(playerId);
+        if (override.isPresent())
+        {
+            return override.getAsInt();
+        }
+        if (permissible != null)
+        {
+            return shopLimit(permissible);
+        }
+        return config.defaultShopLimit();
+    }
+
+    int maxOffers(UUID playerId, Permissible permissible)
+    {
+        java.util.OptionalInt override = playerOverrides.offersOverride(playerId);
+        if (override.isPresent())
+        {
+            return Math.clamp(override.getAsInt(), 1, Shop.MAX_OFFERS);
+        }
+        if (permissible != null)
+        {
+            return ShopLimits.offersFor(path -> permissible.hasPermission("stall." + path), config.maxOffers());
+        }
+        return config.maxOffers();
+    }
+
+    PlayerOverrides playerOverrides()
+    {
+        return playerOverrides;
+    }
+
+    PaperCustomStock customStock()
+    {
+        return customStock;
     }
 
     String describeLimit(int limit)
@@ -445,12 +516,13 @@ final class PaperShops
         }
         String containerId = PaperContainers.id(block);
         String name = messages.container(containerId);
-        if (!current.isContainerAllowed(containerId))
+        Optional<CustomBlockSpec> customSpec = CustomBlocks.findSpec(block, current);
+        if (customSpec.isEmpty() && !current.isContainerAllowed(containerId))
         {
             BukkitItems.send(player, messages.chat("shops.container-disabled", "container", name));
             return;
         }
-        if (PaperContainers.connected(block).isPresent() && !current.doubleChestsAllowed())
+        if (customSpec.isEmpty() && PaperContainers.connected(block).isPresent() && !current.doubleChestsAllowed())
         {
             BukkitItems.send(player, messages.chat("shops.double-chest-disabled"));
             return;
@@ -465,12 +537,12 @@ final class PaperShops
                             "owned", String.valueOf(owned), "limit", String.valueOf(limit)));
             return;
         }
-        if (PaperContainers.inventory(block).isEmpty())
+        if (customSpec.isEmpty() && PaperContainers.inventory(block).isEmpty())
         {
             BukkitItems.send(player, messages.chat("shops.chest-half-unavailable"));
             return;
         }
-        if (PaperContainers.hasUnopenedLoot(block))
+        if (customSpec.isEmpty() && PaperContainers.hasUnopenedLoot(block))
         {
             BukkitItems.send(player, messages.chat("shops.unopened-loot", "container", name));
             return;
@@ -479,7 +551,7 @@ final class PaperShops
         boolean consumed = player.getGameMode() != GameMode.CREATIVE || current.consumeTokenInCreative();
         Shop<ItemStack> shop = new Shop<>(UUID.randomUUID(), player.getUniqueId(), player.getName(), locate(block), consumed);
         shop.setContainer(containerId);
-        boolean large = grantLargeStock(player, shop, block);
+        boolean large = customSpec.isEmpty() && grantLargeStock(player, shop, block);
         registry.add(shop);
         PaperMarkers.stamp(block, shop);
         save(shop);
@@ -808,11 +880,19 @@ final class PaperShops
             {
                 commit(player.getInventory(), success.buyerChanges());
                 stock.get().commit(success.stockChanges());
-                if (stock.get().large())
+                block(shop).ifPresent(block ->
                 {
-                    extraStock.markDirty(shop);
-                    block(shop).ifPresent(barrel -> extraStock.flush(shop, barrel));
-                }
+                    if (customStock != null && CustomBlocks.isSupportedCustomBlock(block, current))
+                    {
+                        customStock.markDirty(shop);
+                        customStock.flush(shop, block);
+                    }
+                    else if (stock.get().large() && extraStock != null)
+                    {
+                        extraStock.markDirty(shop);
+                        extraStock.flush(shop, block);
+                    }
+                });
                 BukkitItems.send(player, messages.chat("trades.complete"));
                 if (current.notifyOwnerOnSale() && !shop.isOwner(player.getUniqueId()))
                 {
@@ -871,36 +951,59 @@ final class PaperShops
     }
 
     /**
-     * Turns on large stock for a barrel shop whose owner has {@code stall.barrel.large}: at creation, and
-     * whenever they open the shop later, so shops they made before getting the permission grow too. It is
-     * never turned off. Returns whether the shop has large stock.
+     * Turns on large stock for a barrel or shulker box shop whose owner has {@code stall.barrel.large} or
+     * {@code stall.shulker.large}: at creation, and whenever they open the shop later, so shops they made
+     * before getting the permission grow too. It is never turned off. Returns whether the shop has large stock.
      */
     boolean grantLargeStock(Player owner, Shop<ItemStack> shop, Block block)
     {
-        if (!shop.largeStock() && config.largeBarrelsAllowed() && PaperContainers.isBarrel(block)
-                && CombinedInventories.available() && owner.hasPermission("stall.barrel.large"))
+        if (!shop.largeStock() && CombinedInventories.available())
         {
-            shop.enableLargeStock();
-            save(shop);
+            boolean grantBarrel = config.largeBarrelsAllowed() && PaperContainers.isBarrel(block)
+                    && owner.hasPermission("stall.barrel.large");
+            boolean grantShulker = config.largeShulkersAllowed() && PaperContainers.isShulkerBox(block)
+                    && owner.hasPermission("stall.shulker.large");
+            if (grantBarrel || grantShulker)
+            {
+                shop.enableLargeStock();
+                save(shop);
+            }
         }
-        return shop.largeStock() && PaperContainers.isBarrel(block);
+        return shop.largeStock() && PaperContainers.isSingleBlockContainer(block);
     }
 
     /**
-     * Opens a large barrel's stock for its owner: the barrel's own 27 slots on top and the extra 27 below,
+     * Opens a large container's stock for its owner: the container's own 27 slots on top and the extra 27 below,
      * in one vanilla menu whose slots are the live inventories. Protection plugins have already allowed
      * the click. Returns whether a view opened.
      */
     boolean openStock(Player player, Shop<ItemStack> shop)
     {
-        Optional<Block> anchor = block(shop).filter(PaperContainers::isBarrel);
-        if (!canAccess(player, shop) || anchor.isEmpty() || extraStock == null || !CombinedInventories.available())
+        Optional<Block> anchor = block(shop);
+        if (!canAccess(player, shop) || anchor.isEmpty())
         {
             return false;
         }
-        Block barrel = anchor.get();
-        Inventory extra = extraStock.inventory(shop, barrel);
-        Optional<Inventory> own = PaperContainers.inventory(barrel);
+        Block block = anchor.get();
+        Optional<CustomBlockSpec> customSpec = CustomBlocks.findSpec(block, config);
+        if (customSpec.isPresent() && customStock != null)
+        {
+            Inventory customInv = customStock.inventory(shop, block, customSpec.get());
+            InventoryView view = player.openInventory(customInv);
+            if (view == null || view.getTopInventory() != customInv)
+            {
+                return false;
+            }
+            stockViews.put(player.getUniqueId(), new StockView(shop, customInv));
+            return true;
+        }
+        if (!PaperContainers.isSingleBlockContainer(block) || extraStock == null || !CombinedInventories.available())
+        {
+            return false;
+        }
+        Block container = block;
+        Inventory extra = extraStock.inventory(shop, container);
+        Optional<Inventory> own = PaperContainers.inventory(container);
         if (extra == null || own.isEmpty())
         {
             BukkitItems.send(player, lang.chat("shops.extra-slots-newer"));
@@ -913,12 +1016,15 @@ final class PaperShops
         {
             return false;
         }
-        view.setTitle(lang.text("menu.titles.large-barrel", "owner", shop.ownerName()));
+        String titleKey = PaperContainers.isShulkerBox(container)
+                ? "menu.titles.large-shulker-box"
+                : "menu.titles.large-barrel";
+        view.setTitle(lang.text(titleKey, "owner", shop.ownerName()));
         stockViews.put(player.getUniqueId(), new StockView(shop, combined));
         return true;
     }
 
-    /** Whether {@code inventory} is the large barrel view open for {@code player}. */
+    /** Whether {@code inventory} is the large barrel or custom stock view open for {@code player}. */
     boolean isStockView(Player player, Inventory inventory)
     {
         StockView view = stockViews.get(player.getUniqueId());
@@ -926,18 +1032,31 @@ final class PaperShops
     }
 
     /**
-     * Called for every click and drag in a large barrel view: the extra slots are written back to the
-     * barrel on the next tick, once the click has been applied.
+     * Called for every click and drag in a stock view: changes are written back to
+     * storage on the next tick, once the click has been applied.
      */
     void stockViewChanged(Player player)
     {
         StockView view = stockViews.get(player.getUniqueId());
-        if (view == null || !extraStock.markDirty(view.shop()))
+        if (view == null)
         {
             return;
         }
         ShopLocation location = view.shop().location();
         World world = player.getWorld();
+        if (customStock != null && block(view.shop()).map(b -> CustomBlocks.isSupportedCustomBlock(b, config)).orElse(false))
+        {
+            if (customStock.markDirty(view.shop()))
+            {
+                scheduler.region(world, location.x() >> 4, location.z() >> 4,
+                        () -> block(view.shop()).ifPresent(b -> customStock.flush(view.shop(), b)));
+            }
+            return;
+        }
+        if (extraStock == null || !extraStock.markDirty(view.shop()))
+        {
+            return;
+        }
         scheduler.region(world, location.x() >> 4, location.z() >> 4,
                 () -> block(view.shop()).ifPresent(barrel -> extraStock.flush(view.shop(), barrel)));
     }
@@ -947,8 +1066,18 @@ final class PaperShops
         StockView view = stockViews.get(player.getUniqueId());
         if (view != null && view.inventory() == inventory && stockViews.remove(player.getUniqueId(), view))
         {
-            extraStock.markDirty(view.shop());
-            block(view.shop()).ifPresent(barrel -> extraStock.flush(view.shop(), barrel));
+            block(view.shop()).ifPresent(b ->
+            {
+                if (customStock != null && CustomBlocks.isSupportedCustomBlock(b, config))
+                {
+                    customStock.flush(view.shop(), b);
+                }
+                else if (extraStock != null)
+                {
+                    extraStock.markDirty(view.shop());
+                    extraStock.flush(view.shop(), b);
+                }
+            });
         }
     }
 
@@ -979,25 +1108,33 @@ final class PaperShops
         }
     }
 
-    /** Whether a large barrel's extra slots hold nothing; a shop that isn't one always does. */
+    /** Whether a large container's extra slots hold nothing; a shop that isn't one always does. */
     boolean extraStockEmpty(Shop<ItemStack> shop)
     {
         if (!shop.largeStock() || extraStock == null)
         {
             return true;
         }
-        return block(shop).filter(PaperContainers::isBarrel).map(barrel -> extraStock.isEmpty(shop, barrel)).orElse(true);
+        return block(shop).filter(PaperContainers::isSingleBlockContainer).map(container -> extraStock.isEmpty(shop, container)).orElse(true);
     }
 
-    /** Drops a large barrel's extra slots where it was broken, before the barrel goes. */
+    /** Drops a large container or custom block's extra slots where it was broken, before the block goes. */
     void dropExtraStock(Shop<ItemStack> shop, Block broken)
     {
-        if (shop.largeStock() && extraStock != null && PaperContainers.isBarrel(broken)
+        if (shop.largeStock() && extraStock != null && PaperContainers.isSingleBlockContainer(broken)
                 && block(shop).filter(broken::equals).isPresent())
         {
             // Nobody may keep putting items into slots that are about to be dropped.
             closeStockViews(shop);
             extraStock.dropContents(shop, broken);
+        }
+        if (customStock != null)
+        {
+            CustomBlocks.findSpec(broken, config).ifPresent(spec ->
+            {
+                closeStockViews(shop);
+                customStock.dropContents(shop, broken, spec);
+            });
         }
     }
 

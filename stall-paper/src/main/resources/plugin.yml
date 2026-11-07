@@ -27,6 +27,9 @@ permissions:
   stall.barrel.large:
     description: Barrel shops hold 54 slots of stock instead of 27.
     default: false
+  stall.shulker.large:
+    description: Shulker box shops hold 54 slots of stock instead of 27.
+    default: false
   stall.admin:
     description: Manage and remove any shop, and use /stall admin.
     default: op

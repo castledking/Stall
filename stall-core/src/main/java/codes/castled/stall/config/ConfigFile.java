@@ -12,10 +12,12 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Loads a YAML config file against the defaults bundled with Stall, and keeps the file up to date as Stall
@@ -48,6 +50,14 @@ public final class ConfigFile
     public static Map<String, Object> load(Path file, String template, List<Migration> migrations, StoreLog log)
     {
         Map<String, Object> defaults = defaults(template);
+        Set<String> terminalMapKeys = new HashSet<>();
+        for (Map.Entry<String, Object> entry : defaults.entrySet())
+        {
+            if (entry.getValue() instanceof Map<?, ?>)
+            {
+                terminalMapKeys.add(entry.getKey());
+            }
+        }
         String name = file.getFileName().toString();
         if (!Files.exists(file))
         {
@@ -68,7 +78,7 @@ public final class ConfigFile
         try
         {
             rawText = Files.readString(file, StandardCharsets.UTF_8);
-            user = flatten(Yaml.parse(rawText));
+            user = flatten(Yaml.parse(rawText), terminalMapKeys);
         }
         catch (YamlException invalid)
         {
@@ -209,6 +219,10 @@ public final class ConfigFile
     /** {@code value} made to fit where {@code fallback} goes, or null if it can't. */
     private static Object coerce(Object fallback, Object value)
     {
+        if (fallback instanceof Map<?, ?>)
+        {
+            return (value instanceof Map<?, ?> || value instanceof List<?>) ? value : null;
+        }
         if (fallback instanceof Boolean)
         {
             return value instanceof Boolean ? value : null;
@@ -240,6 +254,10 @@ public final class ConfigFile
 
     private static String kind(Object fallback)
     {
+        if (fallback instanceof Map<?, ?>)
+        {
+            return "a map of entries";
+        }
         if (fallback instanceof Boolean)
         {
             return "true or false";
@@ -250,19 +268,28 @@ public final class ConfigFile
     /** Nested maps as one map of dotted paths to values. Lists and scalars are values. */
     static Map<String, Object> flatten(Map<String, Object> nested)
     {
+        return flatten(nested, Set.of());
+    }
+
+    static Map<String, Object> flatten(Map<String, Object> nested, Set<String> terminalMapKeys)
+    {
         Map<String, Object> flat = new LinkedHashMap<>();
-        flatten("", nested, flat);
+        flatten("", nested, flat, terminalMapKeys);
         return flat;
     }
 
-    private static void flatten(String prefix, Map<?, ?> nested, Map<String, Object> flat)
+    private static void flatten(String prefix, Map<?, ?> nested, Map<String, Object> flat, Set<String> terminalMapKeys)
     {
         for (Map.Entry<?, ?> entry : nested.entrySet())
         {
             String path = prefix + entry.getKey();
-            if (entry.getValue() instanceof Map<?, ?> child && !child.isEmpty())
+            if (terminalMapKeys.contains(path))
             {
-                flatten(path + ".", child, flat);
+                flat.put(path, entry.getValue());
+            }
+            else if (entry.getValue() instanceof Map<?, ?> child && !child.isEmpty())
+            {
+                flatten(path + ".", child, flat, terminalMapKeys);
             }
             else
             {
@@ -351,6 +378,15 @@ public final class ConfigFile
                         out.add(" ".repeat(indent + 2) + "- " + Yaml.format(item));
                     }
                 }
+                else if (value instanceof Map<?, ?> map && !map.isEmpty())
+                {
+                    out.add(key);
+                    renderMap(out, map, indent + 2);
+                }
+                else if (value instanceof Map<?, ?>)
+                {
+                    out.add(key + " {}");
+                }
                 else
                 {
                     out.add(key + " " + Yaml.format(value));
@@ -359,6 +395,54 @@ public final class ConfigFile
             i = end;
         }
         return String.join("\n", out);
+    }
+
+    private static void renderMap(List<String> out, Map<?, ?> map, int indent)
+    {
+        for (Map.Entry<?, ?> entry : map.entrySet())
+        {
+            if (entry.getKey() == null)
+            {
+                continue;
+            }
+            String keyStr = entry.getKey().toString();
+            String key = " ".repeat(indent) + formatKey(keyStr) + ":";
+            Object val = entry.getValue();
+            if (val instanceof Map<?, ?> child && !child.isEmpty())
+            {
+                out.add(key);
+                renderMap(out, child, indent + 2);
+            }
+            else if (val instanceof Map<?, ?>)
+            {
+                out.add(key + " {}");
+            }
+            else if (val instanceof List<?> list && !list.isEmpty())
+            {
+                out.add(key);
+                for (Object item : list)
+                {
+                    out.add(" ".repeat(indent + 2) + "- " + Yaml.format(item));
+                }
+            }
+            else if (val instanceof List<?>)
+            {
+                out.add(key + " []");
+            }
+            else
+            {
+                out.add(key + " " + Yaml.format(val));
+            }
+        }
+    }
+
+    private static String formatKey(String key)
+    {
+        if (key.contains(":") || key.contains(" ") || key.contains("#") || key.contains("[") || key.contains("{"))
+        {
+            return Yaml.quote(key);
+        }
+        return key;
     }
 
     private record Parent(int indent, String key)

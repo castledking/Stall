@@ -2,7 +2,7 @@
 #
 # Missing settings are filled in on startup or `/stall admin reload`, and your own settings are kept.
 # Keep config-version as it is: Stall uses it to update this file cleanly when new versions come out.
-config-version: 1
+config-version: 2
 
 # --- Shops -----------------------------------------------------------------------------------------
 shops:
@@ -26,15 +26,32 @@ shops:
     barrels: true
     chests: true
     trapped-chests: true
+    shulker-boxes: true
     # Whether a chest shop can be a double chest (54 slots of stock).
     double-chests: true
     # Whether players with `stall.barrel.large` get 54-slot barrel shops.
     large-barrels: true
+    # Whether players with `stall.shulker.large` get 54-slot shulker box shops.
+    large-shulkers: true
 
   # Worlds where new shops cannot be created, by world name or dimension id
   # (such as "world", "world_nether", "world_the_end" or "minecraft:the_end").
   # Existing shops in these worlds still work.
   disabled-worlds: []
+
+  # Custom block models from CraftEngine, Nexo, or Oraxen supported as shops.
+  # Key is the custom block identifier (e.g. "market_stall" or "nexo:stall").
+  # Size is the stock capacity in slots (9, 18, 27, 36, 45, or 54; defaults to 27).
+  # Title is the custom display title shown when opening the shop stock.
+  # Examples:
+  #   custom-blocks:
+  #     nexo:market_stall:
+  #       size: 54
+  #       title: "Market Stall"
+  #     oraxen:pedestal: 18
+  #     craftengine:display_stand:
+  #       size: 27
+  custom-blocks: {}
 
 # --- Protection ------------------------------------------------------------------------------------
 protection:
@@ -58,8 +75,23 @@ trades:
   # How often open shop menus redraw to show stock changes, in ticks (20 ticks = 1 second).
   menu-refresh-ticks: 20
 
+# --- Commands --------------------------------------------------------------------------------------
+commands:
+  # Additional aliases for the /stall command (for example: ["shop", "market"] or "shop").
+  # /stall is always registered.
+  aliases: []
+
 # --- Tokens ----------------------------------------------------------------------------------------
 tokens:
+  # The item ID used for the stall token (for example: "paper", "player_head", "feather", "gold_nugget").
+  item: "paper"
+
+  # CustomModelData integer applied to the token item (0 to disable).
+  custom-model-data: 0
+
+  # Base64 texture string (e.g. from minecraft-heads.com dev 64bit Value) applied when item is "player_head".
+  skull-texture: ""
+
   # Most tokens `/stall token` or `/stall admin give` hands out at once (1 to 64).
   max-per-command: 64
 
@@ -68,3 +100,29 @@ tokens:
 
   # Give the token item an enchantment glint.
   glint: true
+
+# --- Menu Icons ------------------------------------------------------------------------------------
+# Material or item IDs used for shop menu buttons, empty slots and status panes.
+# Uses standard item IDs such as "barrier", "lime_dye", "light_gray_stained_glass_pane".
+menu:
+  icons:
+    # Empty offer slot placeholders in the owner menu.
+    empty-cost-slot: "light_gray_stained_glass_pane"
+    empty-reward-slot: "light_gray_stained_glass_pane"
+
+    # Offer removal button in the owner menu.
+    remove-button: "barrier"
+
+    # Status panes in the owner and buyer menus.
+    status-available: "lime_stained_glass_pane"
+    status-out-of-stock: "red_stained_glass_pane"
+    status-cannot-afford: "orange_stained_glass_pane"
+    status-inventory-full: "orange_stained_glass_pane"
+    status-shop-full: "gray_stained_glass_pane"
+    status-incomplete: "gray_stained_glass_pane"
+    status-unavailable: "gray_stained_glass_pane"
+    status-new-offer: "white_stained_glass_pane"
+
+    # Buy buttons in the buyer menu.
+    buy-available: "lime_dye"
+    buy-unavailable: "gray_dye"

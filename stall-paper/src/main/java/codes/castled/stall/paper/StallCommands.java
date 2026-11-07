@@ -3,8 +3,10 @@ package codes.castled.stall.paper;
 import codes.castled.stall.config.StallLang;
 import codes.castled.stall.offer.Offer;
 import codes.castled.stall.offer.OfferItem;
+import codes.castled.stall.paper.permission.VaultHook;
 import codes.castled.stall.shop.Shop;
 import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -19,6 +21,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Predicate;
 
 /** {@code /stall} and its subcommands. */
@@ -39,18 +42,18 @@ final class StallCommands implements CommandExecutor, TabCompleter
         if (executor(sender) instanceof Player player && !FoliaSupport.owns(player))
         {
             String[] arguments = args.clone();
-            shops.scheduler().entity(player, () -> { if (player.isOnline()) execute(sender, arguments); });
+            shops.scheduler().entity(player, () -> { if (player.isOnline()) execute(sender, label, arguments); });
             return true;
         }
-        execute(sender, args);
+        execute(sender, label, args);
         return true;
     }
 
-    private int execute(CommandSender sender, String[] args)
+    private int execute(CommandSender sender, String label, String[] args)
     {
         if (args.length == 0)
         {
-            return help(sender);
+            return help(sender, label);
         }
         String subcommand = args[0].toLowerCase(Locale.ROOT);
         if ((subcommand.equals("token") && !sender.hasPermission("stall.token"))
@@ -63,19 +66,19 @@ final class StallCommands implements CommandExecutor, TabCompleter
         {
             return switch (subcommand)
             {
-                case "token" -> args.length <= 2 ? token(sender, amount(args, 1)) : usage(sender);
+                case "token" -> args.length <= 2 ? token(sender, amount(args, 1)) : usage(sender, label);
                 case "list" -> switch (args.length)
                 {
                     case 1 -> listOwn(sender, shops);
                     case 2 -> listFor(sender, shops, args[1]);
-                    default -> usage(sender);
+                    default -> usage(sender, label);
                 };
-                case "info" -> args.length == 1 ? info(sender, shops) : usage(sender);
-                case "remove" -> args.length == 1 ? remove(sender, shops) : usage(sender);
-                case "reclaim" -> args.length == 1 ? reclaim(sender, shops) : usage(sender);
-                case "preview" -> args.length == 1 ? preview(sender, shops) : usage(sender);
-                case "admin" -> admin(sender, args);
-                default -> usage(sender);
+                case "info" -> args.length == 1 ? info(sender, shops) : usage(sender, label);
+                case "remove" -> args.length == 1 ? remove(sender, shops) : usage(sender, label);
+                case "reclaim" -> args.length == 1 ? reclaim(sender, shops) : usage(sender, label);
+                case "preview" -> args.length == 1 ? preview(sender, shops) : usage(sender, label);
+                case "admin" -> admin(sender, label, args);
+                default -> usage(sender, label);
             };
         }
         catch (NumberFormatException invalid)
@@ -85,7 +88,7 @@ final class StallCommands implements CommandExecutor, TabCompleter
         }
     }
 
-    private int admin(CommandSender sender, String[] args)
+    private int admin(CommandSender sender, String label, String[] args)
     {
         if (args.length == 2 && args[1].equalsIgnoreCase("reload"))
         {
@@ -96,7 +99,133 @@ final class StallCommands implements CommandExecutor, TabCompleter
         {
             return give(sender, args[2], amount(args, 3));
         }
-        return usage(sender);
+        if (args.length >= 2 && args[1].equalsIgnoreCase("max"))
+        {
+            return max(sender, label, args);
+        }
+        return usage(sender, label);
+    }
+
+    private int max(CommandSender sender, String label, String[] args)
+    {
+        String cmd = "/" + (label != null && !label.isBlank() ? label.toLowerCase(Locale.ROOT) : "stall");
+        if (args.length < 5)
+        {
+            return fail(sender, shops.lang().chat("commands.max-usage", "command", cmd));
+        }
+        String type = args[2].toLowerCase(Locale.ROOT);
+        boolean isLimit = type.equals("limit");
+        boolean isOffers = type.equals("offers");
+        if (!isLimit && !isOffers)
+        {
+            return fail(sender, shops.lang().chat("commands.max-usage", "command", cmd));
+        }
+        String action = args[3].toLowerCase(Locale.ROOT);
+        if (!action.equals("set") && !action.equals("add") && !action.equals("take") && !action.equals("reset"))
+        {
+            return fail(sender, shops.lang().chat("commands.max-usage", "command", cmd));
+        }
+        String playerName = args[4];
+        Player online = Bukkit.getPlayer(playerName);
+        OfflinePlayer target = online != null ? online : Bukkit.getOfflinePlayer(playerName);
+        if (target.getName() == null && !target.hasPlayedBefore())
+        {
+            return fail(sender, shops.lang().chat("commands.player-not-found", "player", playerName));
+        }
+        String name = target.getName() != null ? target.getName() : playerName;
+        UUID uuid = target.getUniqueId();
+
+        if (action.equals("reset"))
+        {
+            if (isLimit)
+            {
+                shops.playerOverrides().clearLimit(uuid);
+            }
+            else
+            {
+                shops.playerOverrides().clearOffers(uuid);
+            }
+            int current = isLimit ? shops.playerLimit(uuid, online) : shops.maxOffers(uuid, online);
+            return succeed(sender, shops.lang().chat("commands.max-reset",
+                    "player", name,
+                    "type", isLimit ? "shop" : "offer",
+                    "current", String.valueOf(current)), 1);
+        }
+
+        if (args.length < 6)
+        {
+            return fail(sender, shops.lang().chat("commands.max-usage", "command", cmd));
+        }
+        int amount;
+        try
+        {
+            amount = Integer.parseInt(args[5]);
+            if (amount < 0)
+            {
+                return fail(sender, shops.lang().chat("commands.invalid-amount",
+                        "max", String.valueOf(shops.config().maxTokensPerCommand())));
+            }
+        }
+        catch (NumberFormatException e)
+        {
+            return fail(sender, shops.lang().chat("commands.invalid-amount",
+                    "max", String.valueOf(shops.config().maxTokensPerCommand())));
+        }
+
+        if (isLimit)
+        {
+            int current = shops.playerLimit(uuid, online);
+            int newAmount = switch (action)
+            {
+                case "set" -> amount;
+                case "add" -> current + amount;
+                case "take" -> Math.max(0, current - amount);
+                default -> amount;
+            };
+            shops.playerOverrides().setLimit(uuid, name, newAmount);
+            if (online != null)
+            {
+                VaultHook.setLimitPermission(online, newAmount);
+                if (online != sender)
+                {
+                    BukkitItems.send(online, shops.lang().chat("commands.max-updated-player",
+                            "type", "shop", "current", String.valueOf(newAmount)));
+                }
+            }
+            return succeed(sender, shops.lang().chat("commands.max-updated",
+                    "player", name,
+                    "type", "shop",
+                    "action", action,
+                    "amount", String.valueOf(amount),
+                    "current", String.valueOf(newAmount)), 1);
+        }
+        else
+        {
+            int current = shops.maxOffers(uuid, online);
+            int newAmount = switch (action)
+            {
+                case "set" -> Math.clamp(amount, 1, codes.castled.stall.shop.Shop.MAX_OFFERS);
+                case "add" -> Math.clamp(current + amount, 1, codes.castled.stall.shop.Shop.MAX_OFFERS);
+                case "take" -> Math.clamp(current - amount, 1, codes.castled.stall.shop.Shop.MAX_OFFERS);
+                default -> Math.clamp(amount, 1, codes.castled.stall.shop.Shop.MAX_OFFERS);
+            };
+            shops.playerOverrides().setOffers(uuid, name, newAmount);
+            if (online != null)
+            {
+                VaultHook.setOffersPermission(online, newAmount);
+                if (online != sender)
+                {
+                    BukkitItems.send(online, shops.lang().chat("commands.max-updated-player",
+                            "type", "offer", "current", String.valueOf(newAmount)));
+                }
+            }
+            return succeed(sender, shops.lang().chat("commands.max-updated",
+                    "player", name,
+                    "type", "offer",
+                    "action", action,
+                    "amount", String.valueOf(amount),
+                    "current", String.valueOf(newAmount)), 1);
+        }
     }
 
     private int amount(String[] args, int index)
@@ -109,10 +238,17 @@ final class StallCommands implements CommandExecutor, TabCompleter
         return amount;
     }
 
-    private int usage(CommandSender sender)
+    private int usage(CommandSender sender, String label)
     {
-        return fail(sender, shops.lang().chat("commands.usage",
-                "max", String.valueOf(shops.config().maxTokensPerCommand())));
+        String cmd = "/" + (label != null && !label.isBlank() ? label.toLowerCase(Locale.ROOT) : "stall");
+        String msg = shops.lang().chat("commands.usage",
+                "command", cmd,
+                "max", String.valueOf(shops.config().maxTokensPerCommand()));
+        if (!cmd.equals("/stall"))
+        {
+            msg = msg.replace("/stall", cmd);
+        }
+        return fail(sender, msg);
     }
 
     @Override
@@ -137,7 +273,7 @@ final class StallCommands implements CommandExecutor, TabCompleter
             }
             else if (args[0].equalsIgnoreCase("admin"))
             {
-                if (args.length == 2) suggestions.addAll(List.of("give", "reload"));
+                if (args.length == 2) suggestions.addAll(List.of("give", "max", "reload"));
                 else if (args.length == 3 && args[1].equalsIgnoreCase("give"))
                 {
                     Bukkit.getOnlinePlayers().forEach(player -> suggestions.add(player.getName()));
@@ -145,6 +281,29 @@ final class StallCommands implements CommandExecutor, TabCompleter
                 else if (args.length == 4 && args[1].equalsIgnoreCase("give"))
                 {
                     suggestions.addAll(amountSuggestions());
+                }
+                else if (args.length == 3 && args[1].equalsIgnoreCase("max"))
+                {
+                    suggestions.addAll(List.of("limit", "offers"));
+                }
+                else if (args.length == 4 && args[1].equalsIgnoreCase("max"))
+                {
+                    suggestions.addAll(List.of("add", "reset", "set", "take"));
+                }
+                else if (args.length == 5 && args[1].equalsIgnoreCase("max"))
+                {
+                    Bukkit.getOnlinePlayers().forEach(player -> suggestions.add(player.getName()));
+                }
+                else if (args.length == 6 && args[1].equalsIgnoreCase("max") && !args[3].equalsIgnoreCase("reset"))
+                {
+                    if (args[2].equalsIgnoreCase("offers"))
+                    {
+                        suggestions.addAll(List.of("1", "2", "3", "4", "5", "6"));
+                    }
+                    else
+                    {
+                        suggestions.addAll(List.of("1", "3", "5", "10", "20", "50", "100"));
+                    }
                 }
             }
         }
@@ -163,16 +322,36 @@ final class StallCommands implements CommandExecutor, TabCompleter
         return source instanceof ProxiedCommandSender proxy ? proxy.getCallee() : source;
     }
 
-    private int help(CommandSender source)
+    private int help(CommandSender source, String label)
     {
         StallLang lang = shops.lang();
         BukkitItems.send(source, lang.chat("commands.help.header"));
         List<String> lines = lang.lines("commands.help.lines");
+        String prefix = "/" + (label != null && !label.isBlank() ? label.toLowerCase(Locale.ROOT) : "stall") + " ";
+        int count = 0;
         for (String line : lines)
         {
-            BukkitItems.send(source, line);
+            if (line.contains("/stall token") && !source.hasPermission("stall.token"))
+            {
+                continue;
+            }
+            BukkitItems.send(source, formatHelpLine(line, prefix));
+            count++;
         }
-        return lines.size();
+        if (source.hasPermission("stall.admin"))
+        {
+            for (String line : lang.lines("commands.help.admin-lines"))
+            {
+                BukkitItems.send(source, formatHelpLine(line, prefix));
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static String formatHelpLine(String line, String prefix)
+    {
+        return prefix.equals("/stall ") ? line : line.replace("/stall ", prefix);
     }
 
     private int token(CommandSender source, int amount)

@@ -4,6 +4,7 @@ import codes.castled.stall.config.StallConfig;
 import codes.castled.stall.config.StallLang;
 import codes.castled.stall.menu.OfferEditor;
 import codes.castled.stall.offer.Offer;
+import codes.castled.stall.shop.PlayerOverrides;
 import codes.castled.stall.shop.Shop;
 import codes.castled.stall.shop.ShopAnchor;
 import codes.castled.stall.shop.ShopLocation;
@@ -52,6 +53,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
@@ -81,10 +83,52 @@ final class FabricShops
     private volatile StallLang lang = StallLang.defaults();
     private ShopPersistence<ItemStack> persistence;
     private StockCodec<ItemStack> stockCodec;
+    private final PlayerOverrides playerOverrides;
 
     FabricShops(Logger logger)
     {
         this.logger = logger;
+        Path folder = FabricLoader.getInstance().getConfigDir().resolve("stall");
+        this.playerOverrides = new PlayerOverrides(folder.resolve("overrides.json"), storeLog());
+    }
+
+    PlayerOverrides playerOverrides()
+    {
+        return playerOverrides;
+    }
+
+    int shopLimit(ServerPlayer player)
+    {
+        OptionalInt override = playerOverrides.limitOverride(player.getUUID());
+        if (override.isPresent())
+        {
+            return override.getAsInt();
+        }
+        return StallPermissions.shopLimit(player, config);
+    }
+
+    int playerLimit(UUID playerId, ServerPlayer online)
+    {
+        OptionalInt override = playerOverrides.limitOverride(playerId);
+        if (override.isPresent())
+        {
+            return override.getAsInt();
+        }
+        if (online != null)
+        {
+            return StallPermissions.shopLimit(online, config);
+        }
+        return config.defaultShopLimit();
+    }
+
+    int maxOffers(UUID playerId, ServerPlayer online)
+    {
+        OptionalInt override = playerOverrides.offersOverride(playerId);
+        if (override.isPresent())
+        {
+            return Math.clamp(override.getAsInt(), 1, Shop.MAX_OFFERS);
+        }
+        return StallPermissions.maxOffers(online, config.maxOffers());
     }
 
     StallConfig config()
@@ -209,7 +253,7 @@ final class FabricShops
         {
             return Optional.empty();
         }
-        if (shop.largeStock() && FabricContainers.isBarrel(level.getBlockState(pos.get()))
+        if (shop.largeStock() && FabricContainers.isSingleBlockContainer(level.getBlockState(pos.get()))
                 && level.getBlockEntity(pos.get()) instanceof BlockEntity barrel)
         {
             ExtraStock extra = extraStock(shop, barrel);
@@ -427,7 +471,7 @@ final class FabricShops
             FabricText.send(player, messages.chat("shops.chest-half-unavailable"));
             return;
         }
-        int limit = StallPermissions.shopLimit(player, current);
+        int limit = shopLimit(player);
         long owned = registry.countOwnedBy(player.getUUID());
         if (owned >= limit)
         {
@@ -808,31 +852,37 @@ final class FabricShops
     }
 
     /**
-     * Turns on large stock for a barrel shop whose owner has {@code stall.barrel.large}: at creation, and
-     * whenever they open the shop later, so shops they made before getting the permission grow too. It is
-     * never turned off. Returns whether the shop has large stock.
+     * Turns on large stock for a barrel or shulker box shop whose owner has {@code stall.barrel.large} or
+     * {@code stall.shulker.large}: at creation, and whenever they open the shop later, so shops they made
+     * before getting the permission grow too. It is never turned off. Returns whether the shop has large stock.
      */
     boolean grantLargeStock(ServerPlayer owner, Shop<ItemStack> shop, BlockState state)
     {
-        if (!shop.largeStock() && config.largeBarrelsAllowed() && FabricContainers.isBarrel(state)
-                && StallPermissions.has(owner, StallPermissions.LARGE_BARREL))
+        if (!shop.largeStock())
         {
-            shop.enableLargeStock();
-            save(shop);
+            boolean grantBarrel = config.largeBarrelsAllowed() && FabricContainers.isBarrel(state)
+                    && StallPermissions.has(owner, StallPermissions.LARGE_BARREL);
+            boolean grantShulker = config.largeShulkersAllowed() && FabricContainers.isShulkerBox(state)
+                    && StallPermissions.has(owner, StallPermissions.LARGE_SHULKER);
+            if (grantBarrel || grantShulker)
+            {
+                shop.enableLargeStock();
+                save(shop);
+            }
         }
-        return shop.largeStock() && FabricContainers.isBarrel(state);
+        return shop.largeStock() && FabricContainers.isSingleBlockContainer(state);
     }
 
     /**
-     * Opens a large barrel's stock for its owner: the barrel's own 27 slots on top and the extra 27 below,
+     * Opens a large container's stock for its owner: the container's own 27 slots on top and the extra 27 below,
      * in one vanilla menu whose slots are the live containers. Protection mods have already allowed the
      * click. Returns whether a view opened.
      */
     boolean openStock(ServerPlayer player, Shop<ItemStack> shop)
     {
         Optional<BlockEntity> anchor = anchorEntity(player.level(), shop)
-                .filter(container -> FabricContainers.isBarrel(container.getBlockState()));
-        if (anchor.isEmpty() || !(anchor.get() instanceof Container barrel))
+                .filter(container -> FabricContainers.isSingleBlockContainer(container.getBlockState()));
+        if (anchor.isEmpty() || !(anchor.get() instanceof Container container))
         {
             return false;
         }
@@ -842,16 +892,19 @@ final class FabricShops
             FabricText.send(player, lang.chat("shops.extra-slots-newer"));
             return false;
         }
-        Container both = new CompoundContainer(barrel, extra);
+        Container both = new CompoundContainer(container, extra);
+        String titleKey = FabricContainers.isShulkerBox(anchor.get().getBlockState())
+                ? "menu.titles.large-shulker-box"
+                : "menu.titles.large-barrel";
         player.openMenu(new SimpleMenuProvider((containerId, inventory, opener) -> ChestMenu.sixRows(containerId, inventory, both),
-                FabricText.chat(lang.text("menu.titles.large-barrel", "owner", shop.ownerName()))));
+                FabricText.chat(lang.text(titleKey, "owner", shop.ownerName()))));
         return true;
     }
 
-    /** Closes every large barrel view open on {@code barrel}. */
-    private void closeStockViews(MinecraftServer server, BlockEntity barrel)
+    /** Closes every large container view open on {@code container}. */
+    private void closeStockViews(MinecraftServer server, BlockEntity container)
     {
-        ExtraStock extra = extraStocks.get(barrel);
+        ExtraStock extra = extraStocks.get(container);
         if (extra == null)
         {
             return;
@@ -866,7 +919,7 @@ final class FabricShops
         }
     }
 
-    /** Whether a large barrel's extra slots hold nothing; a shop that isn't one always does. */
+    /** Whether a large container's extra slots hold nothing; a shop that isn't one always does. */
     boolean extraStockEmpty(Level level, Shop<ItemStack> shop)
     {
         if (!shop.largeStock())
@@ -874,24 +927,24 @@ final class FabricShops
             return true;
         }
         return anchorEntity(level, shop)
-                .filter(container -> FabricContainers.isBarrel(container.getBlockState()))
-                .map(barrel -> extraStock(shop, barrel).holdsNothing())
+                .filter(container -> FabricContainers.isSingleBlockContainer(container.getBlockState()))
+                .map(container -> extraStock(shop, container).holdsNothing())
                 .orElse(true);
     }
 
-    /** Drops a large barrel's extra slots where it was broken. {@code barrel} is the broken block's entity. */
+    /** Drops a large container's extra slots where it was broken. {@code container} is the broken block's entity. */
     void dropExtraStock(MinecraftServer server, Level level, Shop<ItemStack> shop, BlockPos pos, BlockState state,
-            BlockEntity barrel)
+            BlockEntity container)
     {
-        if (!shop.largeStock() || barrel == null || !FabricContainers.isBarrel(state)
+        if (!shop.largeStock() || container == null || !FabricContainers.isSingleBlockContainer(state)
                 || !anchor(level, shop).map(pos::equals).orElse(false))
         {
             return;
         }
         // Nobody may keep putting items into slots that are about to be dropped.
-        closeStockViews(server, barrel);
-        ExtraStock extra = extraStocks.containsKey(barrel) ? extraStocks.remove(barrel) : extraStock(shop, barrel);
-        extraStocks.remove(barrel);
+        closeStockViews(server, container);
+        ExtraStock extra = extraStocks.containsKey(container) ? extraStocks.remove(container) : extraStock(shop, container);
+        extraStocks.remove(container);
         Containers.dropContents(level, pos, extra);
         if (extra.holdsUnreadable())
         {

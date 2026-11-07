@@ -19,6 +19,8 @@ final class StallPermissions
     static final String ADMIN = "admin";
     /** Barrel shops hold 54 slots of stock. A perk to hand out, so nobody has it by default. */
     static final String LARGE_BARREL = "barrel.large";
+    /** Shulker box shops hold 54 slots of stock. A perk to hand out, so nobody has it by default. */
+    static final String LARGE_SHULKER = "shulker.large";
 
     private StallPermissions()
     {
@@ -41,5 +43,14 @@ final class StallPermissions
     static int shopLimit(PermissionContextOwner subject, StallConfig config)
     {
         return ShopLimits.limitFor(path -> has(subject, path), config.defaultShopLimit(), config.maxLimitTier());
+    }
+
+    static int maxOffers(PermissionContextOwner subject, int defaultOffers)
+    {
+        if (subject == null)
+        {
+            return defaultOffers;
+        }
+        return ShopLimits.offersFor(path -> has(subject, path), defaultOffers);
     }
 }

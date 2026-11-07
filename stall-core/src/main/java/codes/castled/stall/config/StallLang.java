@@ -114,9 +114,13 @@ public final class StallLang
         return out;
     }
 
-    /** What players call a container block: "barrel", "chest" or "trapped chest". */
+    /** What players call a container block: "barrel", "chest", "trapped chest" or "shulker box". */
     public String container(String id)
     {
+        if (ShopContainers.isShulkerBox(id))
+        {
+            return text("containers.shulker-box");
+        }
         return switch (id)
         {
             case ShopContainers.CHEST -> text("containers.chest");

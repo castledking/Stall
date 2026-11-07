@@ -2,8 +2,8 @@ package codes.castled.stall.paper;
 
 import codes.castled.stall.shop.Shop;
 import org.bukkit.NamespacedKey;
-import org.bukkit.block.Container;
 import org.bukkit.block.Block;
+import org.bukkit.block.TileState;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.Objects;
@@ -22,33 +22,42 @@ final class PaperMarkers
     {
     }
 
-    /** Stamps the marker. Changes a snapshot of the container and writes it back, the documented way. */
+    /** Stamps the marker. Changes a snapshot of the tile and writes it back, the documented way. */
     static void stamp(Block block, Shop<?> shop)
     {
-        if (block.getState() instanceof Container container)
+        if (block.getState() instanceof TileState tile)
         {
-            container.getPersistentDataContainer().set(SHOP, PersistentDataType.STRING, shop.id().toString());
-            container.update();
+            tile.getPersistentDataContainer().set(SHOP, PersistentDataType.STRING, shop.id().toString());
+            tile.update();
         }
     }
 
     static void clear(Block block)
     {
-        if (block.getState() instanceof Container container)
+        if (block.getState() instanceof TileState tile)
         {
-            container.getPersistentDataContainer().remove(SHOP);
-            container.update();
+            tile.getPersistentDataContainer().remove(SHOP);
+            tile.update();
         }
     }
 
     static boolean carries(Block block, Shop<?> shop)
     {
-        return shop.id().toString().equals(marker(block));
+        String marked = marker(block);
+        if (marked != null)
+        {
+            return shop.id().toString().equals(marked);
+        }
+        if (block.getState() instanceof TileState)
+        {
+            return false;
+        }
+        return shop.container() != null && (shop.container().startsWith("custom:") || !shop.container().startsWith("minecraft:"));
     }
 
     static String marker(Block block)
     {
-        return block.getState() instanceof Container container
-                ? container.getPersistentDataContainer().get(SHOP, PersistentDataType.STRING) : null;
+        return block.getState() instanceof TileState tile
+                ? tile.getPersistentDataContainer().get(SHOP, PersistentDataType.STRING) : null;
     }
 }

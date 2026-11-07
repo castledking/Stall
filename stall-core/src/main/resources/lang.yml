@@ -6,7 +6,7 @@
 #
 # Missing keys are filled in on startup or `/stall admin reload`, and your own text is kept.
 # Keep config-version as it is: Stall uses it to update this file cleanly when new versions come out.
-config-version: 1
+config-version: 2
 
 # Optional prefix put in front of every chat message (for example, "&6[Stall] &r").
 prefix: ""
@@ -23,6 +23,7 @@ containers:
   barrel: "barrel"
   chest: "chest"
   trapped-chest: "trapped chest"
+  shulker-box: "shulker box"
   large-prefix: "large "
 
 limits:
@@ -34,6 +35,7 @@ menu:
     buyer: "{owner}'s Stall"
     owner: "Edit {owner}'s Stall"
     large-barrel: "Large Barrel"
+    large-shulker-box: "Large Shulker Box"
 
   offer-item:
     buyer-pay: "&6You pay {amount}×"
@@ -135,6 +137,11 @@ commands:
   look-at-shop: "&cLook at a shop first."
   move-closer: "&cMove closer to the shop and try again."
   player-offline: "&c{player} isn't online."
+  player-not-found: "&cPlayer '{player}' not found."
+  max-usage: "&cUsage: {command} admin max <limit|offers> <set|add|take> <player> <amount>"
+  max-updated: "&aUpdated {player}'s {type} limit: {action} {amount} (now {current})."
+  max-updated-player: "&aYour {type} limit was updated to {current}."
+  max-reset: "&aReset {player}'s {type} limit override (now {current})."
 
   help:
     header: "&6Stall: use a token on a barrel or chest to make it your shop. Sneak and right-click your shop with an empty hand to set up offers."
@@ -145,6 +152,11 @@ commands:
       - "&7/stall remove - remove the shop you're looking at"
       - "&7/stall reclaim - collect tokens from shops removed while you were away"
       - "&7/stall preview - see your own shops as a buyer does"
+    admin-lines:
+      - "&7/stall list <player> - list another player's shops"
+      - "&7/stall admin reload - reload config and language files"
+      - "&7/stall admin give <player> [amount] - give Stall tokens"
+      - "&7/stall admin max <limit|offers> <set|add|take> <player> <amount> - set player limits"
 
   token:
     one: "&aHere's a Stall token. Use one on a barrel or chest to make it your shop."
@@ -169,7 +181,7 @@ commands:
     incomplete-suffix: "&8 (not set up yet)"
 
   remove:
-    extra-stock-not-empty: "&cThis large barrel still holds stock in its extra slots, which an ordinary barrel can't keep. Empty them first, or break the barrel."
+    extra-stock-not-empty: "&cThis large {container} still holds stock in its extra slots, which an ordinary one can't keep. Empty them first, or break it."
     own: "&aRemoved your shop."
     other: "&aRemoved {owner}'s shop."
     token-own-inventory: " Its token is back in your inventory."

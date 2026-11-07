@@ -3,10 +3,12 @@ package codes.castled.stall.fabric;
 import codes.castled.stall.shop.ShopContainers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.Container;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
@@ -26,12 +28,23 @@ final class FabricContainers
 
     static boolean isSupported(BlockState state)
     {
-        return state.is(Blocks.BARREL) || state.is(Blocks.CHEST) || state.is(Blocks.TRAPPED_CHEST);
+        return state.is(Blocks.BARREL) || state.is(Blocks.CHEST) || state.is(Blocks.TRAPPED_CHEST)
+                || isShulkerBox(state);
     }
 
     static boolean isBarrel(BlockState state)
     {
         return state.is(Blocks.BARREL);
+    }
+
+    static boolean isShulkerBox(BlockState state)
+    {
+        return state.getBlock() instanceof ShulkerBoxBlock || state.is(BlockTags.SHULKER_BOXES);
+    }
+
+    static boolean isSingleBlockContainer(BlockState state)
+    {
+        return isBarrel(state) || isShulkerBox(state);
     }
 
     /** The block's id as saved with a shop, such as {@code minecraft:chest}. */

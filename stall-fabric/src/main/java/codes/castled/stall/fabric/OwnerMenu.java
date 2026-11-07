@@ -33,7 +33,7 @@ final class OwnerMenu extends StallMenu
 
     OwnerMenu(int containerId, ServerPlayer viewer, Shop<ItemStack> shop, ItemStack carried, FabricShops shops)
     {
-        super(containerId, viewer, shop, ShopMenuLayout.ownerRows(shop.offers().size(), shops.config().maxOffers()),
+        super(containerId, viewer, shop, ShopMenuLayout.ownerRows(shop.offers().size(), shops.maxOffers(shop.owner(), viewer)),
                 carried, shops);
         render();
     }
@@ -41,7 +41,7 @@ final class OwnerMenu extends StallMenu
     @Override
     int wantedRows()
     {
-        return ShopMenuLayout.ownerRows(shop.offers().size(), shops.config().maxOffers());
+        return ShopMenuLayout.ownerRows(shop.offers().size(), shops.maxOffers(shop.owner(), viewer));
     }
 
     @Override
@@ -79,7 +79,7 @@ final class OwnerMenu extends StallMenu
                 removal.reset();
                 boolean cost = role.role() == ShopMenuLayout.Role.COST;
                 if (shops.editor().click(shop, role.row(), cost, role.index(), click, getCarried(),
-                        shops.config().maxOffers()))
+                        shops.maxOffers(shop.owner(), viewer)))
                 {
                     shops.edited(shop);
                 }
@@ -131,18 +131,18 @@ final class OwnerMenu extends StallMenu
             {
                 Offer<ItemStack> offer = offers.get(row);
                 display.setItem(ShopMenuLayout.removeSlot(row),
-                        MenuItems.removeButton(lang, removal.isArmed(offer.id(), tick)));
+                        MenuItems.removeButton(shops.config(), lang, removal.isArmed(offer.id(), tick)));
                 drawItems(lang, row, offer.costs(), true);
                 drawItems(lang, row, offer.rewards(), false);
                 int inStock = stock == null || !offer.isComplete() ? 0 : planner.timesInStock(offer, stock);
-                display.setItem(ShopMenuLayout.statusSlot(row), MenuItems.ownerStatus(lang, offer.isComplete(),
+                display.setItem(ShopMenuLayout.statusSlot(row), MenuItems.ownerStatus(shops.config(), lang, offer.isComplete(),
                         inStock, stock == null ? List.of() : planner.missingStock(offer, stock)));
             }
-            else if (row == offers.size() && offers.size() < shops.config().maxOffers())
+            else if (row == offers.size() && offers.size() < shops.maxOffers(shop.owner(), viewer))
             {
                 drawItems(lang, row, OfferSlots.empty(true), true);
                 drawItems(lang, row, OfferSlots.empty(false), false);
-                display.setItem(ShopMenuLayout.statusSlot(row), MenuItems.newOffer(lang));
+                display.setItem(ShopMenuLayout.statusSlot(row), MenuItems.newOffer(shops.config(), lang));
             }
         }
     }
@@ -153,7 +153,7 @@ final class OwnerMenu extends StallMenu
         {
             OfferItem<ItemStack> item = side.get(i);
             display.setItem(ShopMenuLayout.itemSlot(row, cost, i),
-                    item == null ? MenuItems.emptyOfferSlot(lang, cost) : MenuItems.editableOfferItem(lang, item, cost));
+                    item == null ? MenuItems.emptyOfferSlot(shops.config(), lang, cost) : MenuItems.editableOfferItem(lang, item, cost));
         }
     }
 }

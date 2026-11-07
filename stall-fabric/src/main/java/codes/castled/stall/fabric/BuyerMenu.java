@@ -97,8 +97,8 @@ final class BuyerMenu extends StallMenu
                 case CANNOT_AFFORD -> planner.missingPayment(offer, buyer);
                 default -> List.of();
             };
-            display.setItem(ShopMenuLayout.statusSlot(row), MenuItems.status(lang, status, inStock, missing));
-            display.setItem(ShopMenuLayout.buySlot(row), MenuItems.buyButton(lang, status));
+            display.setItem(ShopMenuLayout.statusSlot(row), MenuItems.status(shops.config(), lang, status, inStock, missing));
+            display.setItem(ShopMenuLayout.buySlot(row), MenuItems.buyButton(shops.config(), lang, status));
         }
     }
 }

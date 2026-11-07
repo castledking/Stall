@@ -203,8 +203,24 @@ class ConfigFileTest
         assertTrue(config.isContainerAllowed(ShopContainers.BARREL));
         assertTrue(config.isContainerAllowed(ShopContainers.CHEST));
         assertTrue(config.isContainerAllowed(ShopContainers.TRAPPED_CHEST));
+        assertTrue(config.isContainerAllowed(ShopContainers.SHULKER_BOX));
+        assertTrue(config.isContainerAllowed("minecraft:cyan_shulker_box"));
         assertTrue(config.doubleChestsAllowed());
         assertTrue(config.largeBarrelsAllowed());
+        assertTrue(config.largeShulkersAllowed());
+        assertEquals("light_gray_stained_glass_pane", config.iconEmptyCostSlot());
+        assertEquals("light_gray_stained_glass_pane", config.iconEmptyRewardSlot());
+        assertEquals("barrier", config.iconRemoveButton());
+        assertEquals("lime_stained_glass_pane", config.iconStatusAvailable());
+        assertEquals("red_stained_glass_pane", config.iconStatusOutOfStock());
+        assertEquals("orange_stained_glass_pane", config.iconStatusCannotAfford());
+        assertEquals("orange_stained_glass_pane", config.iconStatusInventoryFull());
+        assertEquals("gray_stained_glass_pane", config.iconStatusShopFull());
+        assertEquals("gray_stained_glass_pane", config.iconStatusIncomplete());
+        assertEquals("gray_stained_glass_pane", config.iconStatusUnavailable());
+        assertEquals("white_stained_glass_pane", config.iconStatusNewOffer());
+        assertEquals("lime_dye", config.iconBuyAvailable());
+        assertEquals("gray_dye", config.iconBuyUnavailable());
         assertFalse(config.isWorldDisabled("minecraft:overworld"));
         assertTrue(config.protectExplosions());
         assertTrue(config.protectHopperExtract());
@@ -215,14 +231,21 @@ class ConfigFileTest
         assertEquals(64, config.maxTokensPerCommand());
         assertFalse(config.consumeTokenInCreative());
         assertTrue(config.tokenGlint());
+        assertEquals(List.of(), config.commandAliases());
+        assertFalse(config.commandAlias().isPresent());
 
         Path configFile = dir.resolve("config.yml");
         String custom = Files.readString(configFile).replace(
                 "disabled-worlds: []",
                 "disabled-worlds: [world, world_the_end, \"minecraft:the_nether\"]"
+        ).replace(
+                "aliases: []",
+                "aliases: [\"/shop\", \"market\", \"stall\", \"\"]"
         );
         Files.writeString(configFile, custom);
         StallConfig reloaded = StallConfig.load(dir, QUIET);
+        assertEquals(List.of("shop", "market"), reloaded.commandAliases());
+        assertEquals("shop", reloaded.commandAlias().orElseThrow());
         String expanded = Files.readString(configFile);
         assertTrue(expanded.contains("disabled-worlds:\n    - \"world\"\n    - \"world_the_end\"\n    - \"minecraft:the_nether\""));
         assertTrue(reloaded.isWorldDisabled("world"));
@@ -248,9 +271,11 @@ class ConfigFileTest
                 lang.lines("token.lore")
         );
         assertEquals("barrel", lang.container(ShopContainers.BARREL));
+        assertEquals("shulker box", lang.container(ShopContainers.SHULKER_BOX));
         assertEquals("no limit", lang.limit(ShopLimits.UNLIMITED));
         assertEquals("3", lang.limit(3));
         assertEquals("§aIn stock", lang.status(OfferStatus.AVAILABLE));
+        assertTrue(lang.lines("commands.help.admin-lines").contains("§7/stall admin reload - reload config and language files"));
         assertEquals(
                 "§cThis shop is out of stock for that trade.",
                 lang.tradeFailure(TradeFailure.OUT_OF_STOCK)
@@ -269,5 +294,104 @@ class ConfigFileTest
         StallLang reloaded = StallLang.load(dir, QUIET);
         assertEquals("", reloaded.chat("trades.complete"));
         assertEquals("§6[Stall] §r§cThis shop is out of stock for that trade.", reloaded.tradeFailure(TradeFailure.OUT_OF_STOCK));
+    }
+
+    @Test
+    void tokenConfigurationAndCustomBlocks(@TempDir Path dir) throws Exception
+    {
+        Path configFile = dir.resolve("config.yml");
+        String custom = """
+                config-version: 2
+                tokens:
+                  item: "player_head"
+                  custom-model-data: 42
+                  skull-texture: "6868eb4718503b87fe48d0879576cfae4f88e65839caef3ee8b8eb3009a0f5a7"
+                shops:
+                  custom-blocks:
+                    nexo:market_stall:
+                      size: 54
+                      title: "Grand Market"
+                    oraxen:pedestal: 18
+                """;
+        Files.writeString(configFile, custom);
+        StallConfig config = StallConfig.load(dir, QUIET);
+        assertEquals("player_head", config.tokenItem());
+        assertEquals(42, config.tokenCustomModelData());
+        assertEquals("6868eb4718503b87fe48d0879576cfae4f88e65839caef3ee8b8eb3009a0f5a7", config.tokenSkullTexture());
+        assertTrue(config.isCustomBlock("nexo:market_stall"));
+        assertTrue(config.isCustomBlock("market_stall"));
+        assertTrue(config.isCustomBlock("oraxen:pedestal"));
+        assertTrue(config.isCustomBlock("pedestal"));
+        assertEquals(54, config.customBlock("nexo:market_stall").get().size());
+        assertEquals("Grand Market", config.customBlock("nexo:market_stall").get().title());
+        assertEquals(18, config.customBlock("oraxen:pedestal").get().size());
+        assertEquals("Pedestal", config.customBlock("oraxen:pedestal").get().title());
+    }
+
+    @Test
+    void upgradesConfigVersionOneToTwoPreservingSettings(@TempDir Path dir) throws Exception
+    {
+        Path configFile = dir.resolve("config.yml");
+        Files.writeString(configFile, """
+                config-version: 1
+                shops:
+                  default-limit: 12
+                  max-offers: 4
+                """);
+        StallConfig config = StallConfig.load(dir, QUIET);
+        assertEquals(12, config.defaultShopLimit());
+        assertEquals(4, config.maxOffers());
+        assertTrue(Files.exists(dir.resolve("config.yml.bak")));
+        String upgraded = Files.readString(configFile);
+        assertTrue(upgraded.contains("config-version: 2"));
+        assertTrue(upgraded.contains("default-limit: 12"));
+        assertTrue(upgraded.contains("max-offers: 4"));
+        assertTrue(upgraded.contains("custom-blocks:"));
+    }
+
+    @Test
+    void skinTexturesNormalization()
+    {
+        String hash = "6868eb4718503b87fe48d0879576cfae4f88e65839caef3ee8b8eb3009a0f5a7";
+        String base64 = SkinTextures.toBase64(hash);
+        assertFalse(base64.isBlank());
+        assertEquals("http://textures.minecraft.net/texture/" + hash, SkinTextures.toUrl(base64));
+
+        String url = "http://textures.minecraft.net/texture/abc123def456";
+        String base64Url = SkinTextures.toBase64(url);
+        assertEquals(url, SkinTextures.toUrl(base64Url));
+    }
+
+    @Test
+    void playerOverridesPersistence(@TempDir Path dir)
+    {
+        Path file = dir.resolve("overrides.json");
+        codes.castled.stall.shop.PlayerOverrides overrides = new codes.castled.stall.shop.PlayerOverrides(file, QUIET);
+        java.util.UUID playerId = java.util.UUID.randomUUID();
+
+        overrides.setLimit(playerId, "Player1", 10);
+        overrides.setOffers(playerId, "Player1", 5);
+        assertEquals(10, overrides.limitOverride(playerId).getAsInt());
+        assertEquals(5, overrides.offersOverride(playerId).getAsInt());
+
+        // Reload from disk
+        codes.castled.stall.shop.PlayerOverrides reloaded = new codes.castled.stall.shop.PlayerOverrides(file, QUIET);
+        assertEquals(10, reloaded.limitOverride(playerId).getAsInt());
+        assertEquals(5, reloaded.offersOverride(playerId).getAsInt());
+
+        reloaded.clearLimit(playerId);
+        assertTrue(reloaded.limitOverride(playerId).isEmpty());
+        assertEquals(5, reloaded.offersOverride(playerId).getAsInt());
+
+        reloaded.reset(playerId);
+        assertFalse(reloaded.hasOverride(playerId));
+    }
+
+    @Test
+    void offersForResolution()
+    {
+        assertEquals(6, ShopLimits.offersFor(perm -> perm.equals("offers.6"), 3));
+        assertEquals(4, ShopLimits.offersFor(perm -> perm.equals("offers.4"), 3));
+        assertEquals(3, ShopLimits.offersFor(perm -> false, 3));
     }
 }

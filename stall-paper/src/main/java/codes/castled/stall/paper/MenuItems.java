@@ -1,5 +1,6 @@
 package codes.castled.stall.paper;
 
+import codes.castled.stall.config.StallConfig;
 import codes.castled.stall.config.StallLang;
 import codes.castled.stall.offer.OfferItem;
 import codes.castled.stall.offer.OfferStatus;
@@ -9,6 +10,7 @@ import org.bukkit.inventory.ItemStack;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /** The display items the shop menus are drawn with. None of them can ever leave a menu. */
 final class MenuItems
@@ -53,16 +55,19 @@ final class MenuItems
     }
 
     /** An empty item slot in the owner menu. */
-    static ItemStack emptyOfferSlot(StallLang lang, boolean cost)
+    static ItemStack emptyOfferSlot(StallConfig config, StallLang lang, boolean cost)
     {
-        return named(Material.LIGHT_GRAY_STAINED_GLASS_PANE,
+        Material material = material(cost ? config.iconEmptyCostSlot() : config.iconEmptyRewardSlot(),
+                Material.LIGHT_GRAY_STAINED_GLASS_PANE);
+        return named(material,
                 BukkitItems.itemLine(lang.text(cost ? "menu.empty-slot.cost-name" : "menu.empty-slot.reward-name")),
                 BukkitItems.itemLines(lang.lines("menu.empty-slot.lore")));
     }
 
-    static ItemStack removeButton(StallLang lang, boolean armed)
+    static ItemStack removeButton(StallConfig config, StallLang lang, boolean armed)
     {
-        ItemStack stack = named(Material.BARRIER,
+        Material material = material(config.iconRemoveButton(), Material.BARRIER);
+        ItemStack stack = named(material,
                 BukkitItems.itemLine(lang.text(armed ? "menu.remove-button.armed-name" : "menu.remove-button.name")),
                 BukkitItems.itemLines(lang.lines(armed ? "menu.remove-button.armed-lore" : "menu.remove-button.lore")));
         if (armed)
@@ -73,23 +78,25 @@ final class MenuItems
     }
 
     /** The status pane of an offer in the owner menu. */
-    static ItemStack ownerStatus(StallLang lang, boolean complete, int timesInStock,
+    static ItemStack ownerStatus(StallConfig config, StallLang lang, boolean complete, int timesInStock,
             List<ItemAmount<ItemStack>> missingStock)
     {
         if (!complete)
         {
-            return named(Material.GRAY_STAINED_GLASS_PANE,
+            Material material = material(config.iconStatusIncomplete(), Material.GRAY_STAINED_GLASS_PANE);
+            return named(material,
                     BukkitItems.itemLine(lang.text("menu.owner-incomplete.name")),
                     BukkitItems.itemLines(lang.lines("menu.owner-incomplete.lore")));
         }
-        return status(lang, timesInStock == 0 ? OfferStatus.OUT_OF_STOCK : OfferStatus.AVAILABLE, timesInStock,
+        return status(config, lang, timesInStock == 0 ? OfferStatus.OUT_OF_STOCK : OfferStatus.AVAILABLE, timesInStock,
                 missingStock);
     }
 
     /** The status pane of the empty row a new offer is put in. */
-    static ItemStack newOffer(StallLang lang)
+    static ItemStack newOffer(StallConfig config, StallLang lang)
     {
-        return named(Material.WHITE_STAINED_GLASS_PANE,
+        Material material = material(config.iconStatusNewOffer(), Material.WHITE_STAINED_GLASS_PANE);
+        return named(material,
                 BukkitItems.itemLine(lang.text("menu.new-offer.name")),
                 BukkitItems.itemLines(lang.lines("menu.new-offer.lore")));
     }
@@ -98,15 +105,26 @@ final class MenuItems
      * The status pane. When the shop is out of stock or the buyer can't afford the trade, its lore lists
      * exactly which items are short and by how many.
      */
-    static ItemStack status(StallLang lang, OfferStatus status, int timesInStock, List<ItemAmount<ItemStack>> missing)
+    static ItemStack status(StallConfig config, StallLang lang, OfferStatus status, int timesInStock, List<ItemAmount<ItemStack>> missing)
     {
-        Material pane = switch (status)
+        Material fallback = switch (status)
         {
             case AVAILABLE -> Material.LIME_STAINED_GLASS_PANE;
             case OUT_OF_STOCK -> Material.RED_STAINED_GLASS_PANE;
             case CANNOT_AFFORD, INVENTORY_FULL -> Material.ORANGE_STAINED_GLASS_PANE;
             case SHOP_FULL, INCOMPLETE, UNAVAILABLE -> Material.GRAY_STAINED_GLASS_PANE;
         };
+        String iconKey = switch (status)
+        {
+            case AVAILABLE -> config.iconStatusAvailable();
+            case OUT_OF_STOCK -> config.iconStatusOutOfStock();
+            case CANNOT_AFFORD -> config.iconStatusCannotAfford();
+            case INVENTORY_FULL -> config.iconStatusInventoryFull();
+            case SHOP_FULL -> config.iconStatusShopFull();
+            case INCOMPLETE -> config.iconStatusIncomplete();
+            case UNAVAILABLE -> config.iconStatusUnavailable();
+        };
+        Material pane = material(iconKey, fallback);
         String stock = timesInStock == 1
                 ? lang.text("menu.status.stock-one", "count", "1")
                 : lang.text("menu.status.stock-many", "count", String.valueOf(timesInStock));
@@ -134,12 +152,29 @@ final class MenuItems
         return named(pane, BukkitItems.itemLine(lang.status(status)), lore);
     }
 
-    static ItemStack buyButton(StallLang lang, OfferStatus status)
+    static ItemStack buyButton(StallConfig config, StallLang lang, OfferStatus status)
     {
         boolean available = status == OfferStatus.AVAILABLE;
-        return named(available ? Material.LIME_DYE : Material.GRAY_DYE,
+        Material fallback = available ? Material.LIME_DYE : Material.GRAY_DYE;
+        Material material = material(available ? config.iconBuyAvailable() : config.iconBuyUnavailable(), fallback);
+        return named(material,
                 BukkitItems.itemLine(available ? lang.text("menu.buy-button.name") : lang.status(status)),
                 available ? BukkitItems.itemLines(lang.lines("menu.buy-button.lore")) : List.of());
+    }
+
+    private static Material material(String id, Material fallback)
+    {
+        if (id == null || id.isBlank())
+        {
+            return fallback;
+        }
+        String clean = id.trim().toLowerCase(Locale.ROOT);
+        if (clean.startsWith("minecraft:"))
+        {
+            clean = clean.substring("minecraft:".length());
+        }
+        Material matched = Material.matchMaterial(clean);
+        return (matched != null && matched.isItem() && !matched.isAir()) ? matched : fallback;
     }
 
     private static ItemStack named(Material material, String name, List<String> lore)

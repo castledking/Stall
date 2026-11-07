@@ -13,6 +13,8 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
+import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
@@ -165,6 +167,11 @@ public final class StallFabric implements ModInitializer
                     || !(player instanceof ServerPlayer serverPlayer)
                     || StallPermissions.has(serverPlayer, StallPermissions.ADMIN))
             {
+                if (shop.isPresent() && FabricContainers.isShulkerBox(state) && blockEntity instanceof Container container)
+                {
+                    Containers.dropContents(level, pos, container);
+                    container.clearContent();
+                }
                 return true;
             }
             FabricText.send(serverPlayer, shops.lang().chat("shops.belongs-to", "owner", shop.get().ownerName()));

@@ -32,7 +32,7 @@ final class OwnerMenu extends StallMenu
 
     OwnerMenu(PaperShops shops, Player viewer, Shop<ItemStack> shop)
     {
-        super(shops, viewer, shop, ShopMenuLayout.ownerRows(shop.offers().size(), shops.config().maxOffers()),
+        super(shops, viewer, shop, ShopMenuLayout.ownerRows(shop.offers().size(), shops.maxOffers(shop.owner(), viewer)),
                 shops.lang().text("menu.titles.owner", "owner", shop.ownerName()));
         render();
     }
@@ -40,7 +40,7 @@ final class OwnerMenu extends StallMenu
     @Override
     int wantedRows()
     {
-        return ShopMenuLayout.ownerRows(shop.offers().size(), shops.config().maxOffers());
+        return ShopMenuLayout.ownerRows(shop.offers().size(), shops.maxOffers(shop.owner(), viewer));
     }
 
     @Override
@@ -84,7 +84,7 @@ final class OwnerMenu extends StallMenu
                 removal.reset();
                 boolean cost = role.role() == ShopMenuLayout.Role.COST;
                 if (shops.editor().click(shop, role.row(), cost, role.index(), click, cursor,
-                        shops.config().maxOffers()))
+                        shops.maxOffers(shop.owner(), viewer)))
                 {
                     shops.edited(shop);
                 }
@@ -126,6 +126,7 @@ final class OwnerMenu extends StallMenu
     {
         beginRender();
         StallLang lang = shops.lang();
+        codes.castled.stall.config.StallConfig config = shops.config();
         TradePlanner<ItemStack> planner = shops.planner();
         SlotInventory<ItemStack> stock = shops.stock(shop).map(PaperStock::slots).orElse(null);
         long tick = shops.currentTick();
@@ -137,29 +138,29 @@ final class OwnerMenu extends StallMenu
             {
                 Offer<ItemStack> offer = offers.get(row);
                 inventory.setItem(ShopMenuLayout.removeSlot(row),
-                        MenuItems.removeButton(lang, removal.isArmed(offer.id(), tick)));
-                drawItems(lang, row, offer.costs(), true);
-                drawItems(lang, row, offer.rewards(), false);
+                        MenuItems.removeButton(config, lang, removal.isArmed(offer.id(), tick)));
+                drawItems(config, lang, row, offer.costs(), true);
+                drawItems(config, lang, row, offer.rewards(), false);
                 int inStock = stock == null || !offer.isComplete() ? 0 : planner.timesInStock(offer, stock);
-                inventory.setItem(ShopMenuLayout.statusSlot(row), MenuItems.ownerStatus(lang, offer.isComplete(),
+                inventory.setItem(ShopMenuLayout.statusSlot(row), MenuItems.ownerStatus(config, lang, offer.isComplete(),
                         inStock, stock == null ? List.of() : planner.missingStock(offer, stock)));
             }
-            else if (row == offers.size() && offers.size() < shops.config().maxOffers())
+            else if (row == offers.size() && offers.size() < shops.maxOffers(shop.owner(), viewer))
             {
-                drawItems(lang, row, OfferSlots.empty(true), true);
-                drawItems(lang, row, OfferSlots.empty(false), false);
-                inventory.setItem(ShopMenuLayout.statusSlot(row), MenuItems.newOffer(lang));
+                drawItems(config, lang, row, OfferSlots.empty(true), true);
+                drawItems(config, lang, row, OfferSlots.empty(false), false);
+                inventory.setItem(ShopMenuLayout.statusSlot(row), MenuItems.newOffer(config, lang));
             }
         }
     }
 
-    private void drawItems(StallLang lang, int row, OfferSlots<ItemStack> side, boolean cost)
+    private void drawItems(codes.castled.stall.config.StallConfig config, StallLang lang, int row, OfferSlots<ItemStack> side, boolean cost)
     {
         for (int i = 0; i < side.size(); i++)
         {
             OfferItem<ItemStack> item = side.get(i);
             inventory.setItem(ShopMenuLayout.itemSlot(row, cost, i),
-                    item == null ? MenuItems.emptyOfferSlot(lang, cost) : MenuItems.editableOfferItem(lang, item, cost));
+                    item == null ? MenuItems.emptyOfferSlot(config, lang, cost) : MenuItems.editableOfferItem(lang, item, cost));
         }
     }
 }

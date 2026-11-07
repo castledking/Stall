@@ -13,6 +13,7 @@ import net.minecraft.world.CompoundContainer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -91,11 +92,20 @@ class ExtraStockTest
     }
 
     @Test
-    void onlyBarrelsChestsAndTrappedChestsBecomeShops()
+    void supportedContainersIncludeBarrelsChestsAndShulkerBoxes()
     {
         assertTrue(FabricContainers.isSupported(Blocks.BARREL.defaultBlockState()));
         assertTrue(FabricContainers.isSupported(Blocks.CHEST.defaultBlockState()));
         assertTrue(FabricContainers.isSupported(Blocks.TRAPPED_CHEST.defaultBlockState()));
+        assertTrue(FabricContainers.isSupported(Blocks.SHULKER_BOX.defaultBlockState()));
+        BlockState cyanShulker = BuiltInRegistries.BLOCK.getValue(Identifier.withDefaultNamespace("cyan_shulker_box")).defaultBlockState();
+        assertTrue(FabricContainers.isSupported(cyanShulker));
+        assertTrue(FabricContainers.isShulkerBox(Blocks.SHULKER_BOX.defaultBlockState()));
+        assertTrue(FabricContainers.isShulkerBox(cyanShulker));
+        assertFalse(FabricContainers.isShulkerBox(Blocks.BARREL.defaultBlockState()));
+        assertTrue(FabricContainers.isSingleBlockContainer(Blocks.SHULKER_BOX.defaultBlockState()));
+        assertTrue(FabricContainers.isSingleBlockContainer(Blocks.BARREL.defaultBlockState()));
+        assertFalse(FabricContainers.isSingleBlockContainer(Blocks.CHEST.defaultBlockState()));
         for (String copper : new String[]{"copper_chest", "waxed_oxidized_copper_chest"})
         {
             assertFalse(FabricContainers.isSupported(BuiltInRegistries.BLOCK.getValue(Identifier.withDefaultNamespace(copper))
@@ -103,5 +113,7 @@ class ExtraStockTest
         }
         assertFalse(FabricContainers.isSupported(Blocks.ENDER_CHEST.defaultBlockState()));
         assertEquals("minecraft:trapped_chest", FabricContainers.id(Blocks.TRAPPED_CHEST.defaultBlockState()));
+        assertEquals("minecraft:shulker_box", FabricContainers.id(Blocks.SHULKER_BOX.defaultBlockState()));
+        assertEquals("minecraft:cyan_shulker_box", FabricContainers.id(cyanShulker));
     }
 }

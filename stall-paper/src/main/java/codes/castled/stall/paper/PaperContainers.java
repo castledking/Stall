@@ -1,7 +1,10 @@
 package codes.castled.stall.paper;
 
+import codes.castled.stall.config.StallConfig;
+import codes.castled.stall.paper.custom.CustomBlocks;
 import codes.castled.stall.shop.ShopContainers;
 import org.bukkit.Material;
+import org.bukkit.Tag;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.Container;
@@ -24,7 +27,13 @@ final class PaperContainers
     static boolean isSupported(Block block)
     {
         Material type = block.getType();
-        return type == Material.BARREL || type == Material.CHEST || type == Material.TRAPPED_CHEST;
+        return type == Material.BARREL || type == Material.CHEST || type == Material.TRAPPED_CHEST
+                || Tag.SHULKER_BOXES.isTagged(type);
+    }
+
+    static boolean isSupported(Block block, StallConfig config)
+    {
+        return isSupported(block) || CustomBlocks.isSupportedCustomBlock(block, config);
     }
 
     static boolean isBarrel(Block block)
@@ -32,10 +41,21 @@ final class PaperContainers
         return block.getType() == Material.BARREL;
     }
 
-    /** The block's id as saved with a shop, such as {@code minecraft:chest}. */
+    static boolean isShulkerBox(Block block)
+    {
+        return Tag.SHULKER_BOXES.isTagged(block.getType());
+    }
+
+    static boolean isSingleBlockContainer(Block block)
+    {
+        return isBarrel(block) || isShulkerBox(block);
+    }
+
+    /** The block's id as saved with a shop, such as {@code minecraft:chest} or {@code nexo:stall}. */
     static String id(Block block)
     {
-        return block.getType().getKey().toString();
+        Optional<String> custom = CustomBlocks.findCustomBlockId(block);
+        return custom.orElseGet(() -> block.getType().getKey().toString());
     }
 
     /** What players call the container, for messages. */
